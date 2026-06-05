@@ -107,14 +107,14 @@ namespace REPOBot.Config
                 "Slowest crawl speed when right next to a goal.");
             AutoStep = cfg.Bind("02 Movement", "AutoStep", true,
                 "Hop upward when blocked at foot height (climbs stairs / small props like desks).");
-            StepUpSpeed = cfg.Bind("02 Movement", "StepUpSpeed", 3.5f,
-                "Upward speed of the auto-step hop.");
+            StepUpSpeed = cfg.Bind("02 Movement", "StepUpSpeed", 2.8f,
+                "Upward speed of the auto-step hop. Lower = gentler (less 'frog' hopping).");
             AllowSprint = cfg.Bind("02 Movement", "AllowSprint", true,
                 "Let the bot sprint when it judges the path safe and clear.");
             ArriveRadius = cfg.Bind("02 Movement", "ArriveRadius", 1.4f,
                 "Distance (m) at which a target counts as reached.");
-            StuckSeconds = cfg.Bind("02 Movement", "StuckSeconds", 1.5f,
-                "If the bot makes no forward progress for this long, it replans.");
+            StuckSeconds = cfg.Bind("02 Movement", "StuckSeconds", 0.8f,
+                "If the bot makes no forward progress for this long, it replans/sidesteps (catches door frames faster).");
             RepathInterval = cfg.Bind("02 Movement", "RepathInterval", 0.4f,
                 "Seconds between navmesh path recomputes.");
 

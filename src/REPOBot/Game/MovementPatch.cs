@@ -25,12 +25,13 @@ namespace REPOBot.Game
         // Tunables pushed in from settings.
         public static float Acceleration = 14f;
         public static bool AutoStep = true;
-        public static float StepUpSpeed = 3.5f;
+        public static float StepUpSpeed = 2.8f;
 
         private static ManualLogSource _log;
         private static Rigidbody _rb;
         private static bool _installed;
         private static float _blockedTimer;
+        private static float _stepCooldown;
 
         public static bool Installed => _installed;
         public static bool HasBody => _rb != null;
@@ -88,17 +89,22 @@ namespace REPOBot.Game
             Vector3 tgtH = new Vector3(DesiredVelocity.x, 0f, DesiredVelocity.z);
             Vector3 newH = Vector3.MoveTowards(curH, tgtH, Acceleration * dt);
 
-            // Auto-step: if we WANT to move but our actual velocity is stalled
-            // (blocked by a step / small prop), give a short upward hop to climb it.
+            // Auto-step: only hop when we genuinely want to move but are basically
+            // stopped (truly blocked by a step), are on the ground, and not already
+            // mid-hop. The cooldown stops the frog-like repeated hopping.
             float y = v.y;
             float want = tgtH.magnitude;
-            if (want > 0.5f && curH.magnitude < want * 0.35f) _blockedTimer += dt;
+            bool grounded = Mathf.Abs(v.y) < 1.5f;
+            if (want > 0.5f && curH.magnitude < 0.4f && grounded) _blockedTimer += dt;
             else _blockedTimer = 0f;
 
-            if (AutoStep && _blockedTimer > 0.2f && y < StepUpSpeed)
+            if (_stepCooldown > 0f) _stepCooldown -= dt;
+
+            if (AutoStep && _blockedTimer >= 0.35f && _stepCooldown <= 0f && grounded)
             {
                 y = StepUpSpeed;
                 _blockedTimer = 0f;
+                _stepCooldown = 0.7f; // don't hop again immediately
             }
 
             _rb.velocity = new Vector3(newH.x, y, newH.z);
@@ -124,6 +130,7 @@ namespace REPOBot.Game
         {
             Active = false;
             _blockedTimer = 0f;
+            _stepCooldown = 0f;
         }
     }
 }
