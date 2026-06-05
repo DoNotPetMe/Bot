@@ -116,8 +116,8 @@ namespace REPOBot.Config
                 "How strongly to steer away from nearby walls. Higher = hugs the centre of doorways/corridors more.");
             WallFeeler = cfg.Bind("02 Movement", "WallFeeler", 1.4f,
                 "How far ahead (m) the bot feels for walls to steer around them.");
-            FaceMovement = cfg.Bind("02 Movement", "FaceMovement", true,
-                "Turn the view to look where the bot is going (and at items when grabbing), like a real player.");
+            FaceMovement = cfg.Bind("02 Movement", "FaceMovement", false,
+                "Turn the view to look where the bot is going (and at items when grabbing). Experimental - can make the view swing; off by default.");
             AllowSprint = cfg.Bind("02 Movement", "AllowSprint", true,
                 "Let the bot sprint when it judges the path safe and clear.");
             ArriveRadius = cfg.Bind("02 Movement", "ArriveRadius", 1.4f,
@@ -166,8 +166,8 @@ namespace REPOBot.Config
                 "While carrying, re-assert the grab this often (seconds) so the item isn't dropped.");
             PullDistance = cfg.Bind("04 Objectives", "PullDistance", 1.1f,
                 "Keep a carried item pulled in to roughly this distance so it doesn't flail into walls.");
-            JumpWhenStuck = cfg.Bind("02 Movement", "JumpWhenStuck", true,
-                "Try to jump when the bot stops making progress (helps over small props/ledges).");
+            JumpWhenStuck = cfg.Bind("02 Movement", "JumpWhenStuck", false,
+                "Jump when stuck. OFF by default - it caused constant 'bunny hopping' because the bot gets micro-stuck often. The bot now backs out and re-routes instead.");
 
             ShowTimer = cfg.Bind("05 Timing", "ShowTimer", true,
                 "Show the run timer on the HUD.");

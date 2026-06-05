@@ -273,9 +273,9 @@ namespace REPOBot.Core
                 _nav.SetGoal(world.PlayerPos, goal, force: true);
                 if (Settings.JumpWhenStuck.Value) Api.TryJump();
 
-                // Holding something and can't make progress hauling it -> it's too
-                // heavy to move (e.g. no strength upgrade). Drop it and leave it.
-                if (holding && _stuckCount >= 3)
+                // Holding something and STILL can't move after several back-out
+                // attempts -> it's too heavy (e.g. no strength upgrade). Drop it.
+                if (holding && _stuckCount >= 5)
                 {
                     var g = Api.GetPhysGrabber(LocalPlayerComponent());
                     if (g != null) Api.Release(g);
@@ -286,20 +286,23 @@ namespace REPOBot.Core
                     return;
                 }
 
-                if (valuableTarget != null && _stuckCount >= 3)
+                if (valuableTarget != null && _stuckCount >= 5)
                 {
                     Skip(valuableTarget.GameObject, "stuck / unreachable");
                     _stuckCount = 0;
                 }
                 else
                 {
-                    // Sidestep around the obstacle (alternating sides) this tick.
-                    Vector3 fwd = goal - world.PlayerPos; fwd.y = 0f;
-                    Vector3 side = Vector3.Cross(Vector3.up, fwd.normalized);
+                    // Back OUT of the obstacle (reverse + alternating side) so we
+                    // peel off corners/tables/opened doors instead of grinding into
+                    // them. No jumping - that just made it tumble.
+                    Vector3 fwd = goal - world.PlayerPos; fwd.y = 0f; fwd.Normalize();
+                    Vector3 side = Vector3.Cross(Vector3.up, fwd);
                     if ((_stuckCount & 1) == 0) side = -side;
-                    DriveDir(side, Settings.WalkSpeed.Value * Settings.MoveIntensity.Value);
+                    Vector3 backOut = (-fwd * 0.8f + side).normalized;
+                    DriveDir(backOut, Settings.WalkSpeed.Value * 0.7f * Settings.MoveIntensity.Value);
                 }
-                if (Settings.VerboseLogging.Value) Log.LogInfo($"Stuck ({_stuckCount}) - replan/sidestep.");
+                if (Settings.VerboseLogging.Value) Log.LogInfo($"Stuck ({_stuckCount}) - backing out / re-route.");
                 return;
             }
 
