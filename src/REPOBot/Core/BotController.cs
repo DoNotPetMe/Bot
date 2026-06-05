@@ -293,7 +293,7 @@ namespace REPOBot.Core
             {
                 if (Time.time - _dwellStart >= Settings.GrabReachSeconds.Value)
                 {
-                    Skip(valuableTarget.GameObject, "no line of sight / out of range");
+                    SkipLong(valuableTarget.GameObject, "no line of sight / out of range (door/wall?)");
                     _dwellTarget = null;
                 }
                 return;
@@ -319,7 +319,7 @@ namespace REPOBot.Core
 
             if (grabber == null || physObj == null || _grabAttempts >= Settings.GrabMaxAttempts.Value)
             {
-                Skip(valuableTarget.GameObject, grabber == null || physObj == null ? "no grab API" : "grab didn't take");
+                SkipLong(valuableTarget.GameObject, grabber == null || physObj == null ? "no grab API" : "grab didn't take");
                 _dwellTarget = null;
             }
         }
@@ -329,6 +329,15 @@ namespace REPOBot.Core
             if (go == null) return;
             _skipUntil[go] = Time.time + Settings.UnreachableSkipSeconds.Value;
             if (Settings.VerboseLogging.Value) Log.LogInfo($"Skipping valuable ({why}).");
+        }
+
+        /// <summary>Skip for a long time - used for items the bot can't see/reach to
+        /// grab, so it stops returning and re-triggering the grab sound.</summary>
+        private void SkipLong(GameObject go, string why)
+        {
+            if (go == null) return;
+            _skipUntil[go] = Time.time + Settings.FailedGrabSkipSeconds.Value;
+            if (Settings.VerboseLogging.Value) Log.LogInfo($"Skipping valuable for a while ({why}).");
         }
 
         /// <summary>Current set of valuables to ignore, with expired entries purged.</summary>

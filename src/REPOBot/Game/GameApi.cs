@@ -49,6 +49,7 @@ namespace REPOBot.Game
         private readonly MethodInfo _releaseObject;         // PhysGrabber.ReleaseObject(int, float)
         private readonly MemberInfoRef _valuablePhysObject; // ValuableObject.physGrabObject (PhysGrabObject)
         private readonly MemberInfoRef _grabbedFlag;        // PhysGrabber.grabbed (bool)
+        private readonly MemberInfoRef _grabbedPhysObj;     // PhysGrabber.grabbedPhysGrabObject
         private readonly MemberInfoRef _grabRangeField;     // PhysGrabber.grabRange (float)
         private readonly MemberInfoRef _pcInstance;         // PlayerController.instance (static)
         private readonly MemberInfoRef _jumpBuffer;         // PlayerController.JumpInputBuffer (float)
@@ -114,6 +115,8 @@ namespace REPOBot.Game
 
             _grabbedFlag = MemberInfoRef.Resolve(Report, "PhysGrabber.grabbed",
                 PhysGrabberType, "grabbed");
+            _grabbedPhysObj = MemberInfoRef.Resolve(Report, "PhysGrabber.grabbedPhysGrabObject",
+                PhysGrabberType, "grabbedPhysGrabObject");
             _grabRangeField = MemberInfoRef.Resolve(Report, "PhysGrabber.grabRange",
                 PhysGrabberType, "grabRange");
             _pcInstance = MemberInfoRef.Resolve(Report, "PlayerController.instance",
@@ -184,11 +187,14 @@ namespace REPOBot.Game
         {
             var grabber = GetPhysGrabber(player);
             if (grabber == null) return false;
-            // Prefer the explicit 'grabbed' bool; fall back to the held Rigidbody.
-            if (_grabbedFlag != null && _grabbedFlag.TryGet(grabber, out var gv) && gv is bool gb)
-                return gb;
-            if (_grabberHeldObject != null && _grabberHeldObject.TryGet(grabber, out var held))
-                return held is UnityEngine.Object uo && uo != null;
+            // Holding if ANY of these say so (most reliable first): the grabbed
+            // Rigidbody, the grabbed PhysGrabObject, or the 'grabbed' bool.
+            if (_grabberHeldObject != null && _grabberHeldObject.TryGet(grabber, out var ho)
+                && ho is UnityEngine.Object u1 && u1 != null) return true;
+            if (_grabbedPhysObj != null && _grabbedPhysObj.TryGet(grabber, out var po)
+                && po is UnityEngine.Object u2 && u2 != null) return true;
+            if (_grabbedFlag != null && _grabbedFlag.TryGet(grabber, out var gv) && gv is bool gb && gb)
+                return true;
             return false;
         }
 
@@ -217,22 +223,31 @@ namespace REPOBot.Game
             if (dist > maxRange) return false;
             if (dist < 0.05f) return true;
 
-            var hits = Physics.RaycastAll(eye, to / dist, dist + 0.5f, ~0, QueryTriggerInteraction.Ignore);
+            // The valuable's own transforms, so we can tell "we hit the item" from
+            // "we hit a door/cupboard in front of it".
+            Transform vTr = valuable.transform;
+            Transform physTr = GetValuablePhysObject(valuable) is Component pc ? pc.transform : null;
+            Transform pRoot = player.transform.root;
+
+            var hits = Physics.RaycastAll(eye, to / dist, dist + 0.25f, ~0, QueryTriggerInteraction.Ignore);
             if (hits.Length == 0) return true;
             System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
 
-            Transform pRoot = player.transform.root;
-            Transform vTr = valuable.transform;
             foreach (var h in hits)
             {
                 var t = h.collider != null ? h.collider.transform : null;
                 if (t == null) continue;
-                if (pRoot != null && t.IsChildOf(pRoot)) continue;   // ignore the player's own colliders
-                if (t == vTr || t.IsChildOf(vTr)) return true;       // hit the item itself: clear
-                if (h.distance >= dist - 0.4f) return true;          // ray reached the item's vicinity: clear
-                return false;                                        // something solid blocks the view
+                if (pRoot != null && t.IsChildOf(pRoot)) continue;     // ignore the player's own colliders
+                if (IsPartOf(t, vTr) || IsPartOf(t, physTr)) return true; // first solid thing IS the item: clear
+                return false;                                          // a door / wall / appliance blocks it
             }
             return true;
+        }
+
+        private static bool IsPartOf(Transform t, Transform root)
+        {
+            if (t == null || root == null) return false;
+            return t == root || t.IsChildOf(root) || root.IsChildOf(t);
         }
 
         /// <summary>Best-effort jump (buffers a jump input on the PlayerController).</summary>

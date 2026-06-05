@@ -48,6 +48,7 @@ namespace REPOBot.Config
         public readonly ConfigEntry<float> GrabRange;            // only grab within this distance (LOS-gated)
         public readonly ConfigEntry<float> GrabRetrySeconds;     // min time between grab attempts
         public readonly ConfigEntry<int> GrabMaxAttempts;        // give up after this many tries
+        public readonly ConfigEntry<float> FailedGrabSkipSeconds; // ignore an un-grabbable item this long
         public readonly ConfigEntry<bool> JumpWhenStuck;         // try jumping when stuck on something
 
         // --- Timing / records ---
@@ -117,10 +118,12 @@ namespace REPOBot.Config
                 "Valuables within this distance of the extraction point are treated as already delivered.");
             GrabRange = cfg.Bind("04 Objectives", "GrabRange", 2.5f,
                 "Only grab a valuable when it is within this distance AND in clear line of sight (prevents grabbing through walls/doors).");
-            GrabRetrySeconds = cfg.Bind("04 Objectives", "GrabRetrySeconds", 0.4f,
+            GrabRetrySeconds = cfg.Bind("04 Objectives", "GrabRetrySeconds", 0.75f,
                 "Minimum time between grab attempts (stops the constant grab-sound spam).");
-            GrabMaxAttempts = cfg.Bind("04 Objectives", "GrabMaxAttempts", 5,
+            GrabMaxAttempts = cfg.Bind("04 Objectives", "GrabMaxAttempts", 3,
                 "Give up on a valuable after this many failed grab attempts, then skip it for a while.");
+            FailedGrabSkipSeconds = cfg.Bind("04 Objectives", "FailedGrabSkipSeconds", 120f,
+                "How long to ignore a valuable the bot couldn't grab (out of sight / can't reach), so it doesn't keep returning and re-spamming.");
             JumpWhenStuck = cfg.Bind("02 Movement", "JumpWhenStuck", true,
                 "Try to jump when the bot stops making progress (helps over small props/ledges).");
 
