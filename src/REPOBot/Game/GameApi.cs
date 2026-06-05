@@ -5,6 +5,9 @@ using UnityEngine;
 
 namespace REPOBot.Game
 {
+    /// <summary>Result of a grab-reachability check.</summary>
+    public enum GrabCheck { Ok, OutOfRange, Blocked, BlockedByDoor }
+
     /// <summary>
     /// THE place to verify symbols. Every reference to a R.E.P.O. internal type,
     /// field, property or method is declared here with a list of candidate names.
@@ -30,6 +33,8 @@ namespace REPOBot.Game
         public readonly Type ValuableType;
         public readonly Type ExtractionType;
         public readonly Type PhysGrabberType;
+        public readonly Type PhysGrabObjectType;
+        public readonly Type PhysGrabHingeType;
         public readonly Type RunManagerType;
         public readonly Type SemiFuncType;
 
@@ -72,6 +77,10 @@ namespace REPOBot.Game
                 Reflect.FindType("ExtractionPoint", "Extraction", "ExtractPoint"));
             PhysGrabberType = Report.Track("type PhysGrabber",
                 Reflect.FindType("PhysGrabber", "PhysGrab"));
+            PhysGrabObjectType = Report.Track("type PhysGrabObject",
+                Reflect.FindType("PhysGrabObject"));
+            PhysGrabHingeType = Report.Track("type PhysGrabHinge",
+                Reflect.FindType("PhysGrabHinge"));
             RunManagerType = Report.Track("type RunManager",
                 Reflect.FindType("RunManager", "GameDirector", "RunDirector"));
             SemiFuncType = Report.Track("type SemiFunc",
@@ -212,36 +221,55 @@ namespace REPOBot.Game
         /// camera AND there's clear line of sight to it (nothing solid in between).
         /// Prevents grabbing through walls/doors (which yanks and breaks items).
         /// </summary>
-        public bool CanGrab(Component player, Component valuable, Vector3 itemPos, float maxRange)
+        /// <summary>
+        /// Checks whether the valuable can be grabbed right now. If a hinged door
+        /// (fridge/cupboard/drawer) is in the way, returns BlockedByDoor and the
+        /// door's PhysGrabObject in <paramref name="doorToOpen"/> so the bot can
+        /// open it first.
+        /// </summary>
+        public GrabCheck CheckGrab(Component player, Component valuable, Vector3 itemPos, float maxRange, out Component doorToOpen)
         {
-            if (player == null || valuable == null) return false;
+            doorToOpen = null;
+            if (player == null || valuable == null) return GrabCheck.Blocked;
 
             var cam = Camera.main;
             Vector3 eye = cam != null ? cam.transform.position : player.transform.position + Vector3.up * 1.4f;
             Vector3 to = itemPos - eye;
             float dist = to.magnitude;
-            if (dist > maxRange) return false;
-            if (dist < 0.05f) return true;
+            if (dist > maxRange) return GrabCheck.OutOfRange;
+            if (dist < 0.05f) return GrabCheck.Ok;
 
-            // The valuable's own transforms, so we can tell "we hit the item" from
-            // "we hit a door/cupboard in front of it".
             Transform vTr = valuable.transform;
             Transform physTr = GetValuablePhysObject(valuable) is Component pc ? pc.transform : null;
             Transform pRoot = player.transform.root;
 
             var hits = Physics.RaycastAll(eye, to / dist, dist + 0.25f, ~0, QueryTriggerInteraction.Ignore);
-            if (hits.Length == 0) return true;
+            if (hits.Length == 0) return GrabCheck.Ok;
             System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
 
             foreach (var h in hits)
             {
                 var t = h.collider != null ? h.collider.transform : null;
                 if (t == null) continue;
-                if (pRoot != null && t.IsChildOf(pRoot)) continue;     // ignore the player's own colliders
-                if (IsPartOf(t, vTr) || IsPartOf(t, physTr)) return true; // first solid thing IS the item: clear
-                return false;                                          // a door / wall / appliance blocks it
+                if (pRoot != null && t.IsChildOf(pRoot)) continue;           // ignore the player's own colliders
+                if (IsPartOf(t, vTr) || IsPartOf(t, physTr)) return GrabCheck.Ok; // first solid thing IS the item
+
+                // Something blocks it. If it's a hinged door, report it as openable.
+                doorToOpen = FindOpenableDoor(t);
+                return doorToOpen != null ? GrabCheck.BlockedByDoor : GrabCheck.Blocked;
             }
-            return true;
+            return GrabCheck.Ok;
+        }
+
+        /// <summary>If the blocking collider belongs to a hinged grabbable (a
+        /// fridge/cupboard/drawer door), returns that door's PhysGrabObject.</summary>
+        private Component FindOpenableDoor(Transform blocker)
+        {
+            if (blocker == null || PhysGrabObjectType == null) return null;
+            // Must be hinged - that's what fridge/cupboard/drawer doors are.
+            if (PhysGrabHingeType != null && blocker.GetComponentInParent(PhysGrabHingeType) == null)
+                return null;
+            return blocker.GetComponentInParent(PhysGrabObjectType);
         }
 
         private static bool IsPartOf(Transform t, Transform root)

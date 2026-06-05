@@ -52,6 +52,14 @@ namespace REPOBot.Core
         private float _lastGrabAttempt;    // throttle for grab calls
         private int _grabAttempts;         // attempts on the current dwell target
 
+        // Door opening
+        private Component _doorToOpen;     // PhysGrabObject of the door we're opening
+        private Vector3 _doorPos;          // where that door is (to pull away from)
+        private GameObject _openForValuable; // the valuable we're opening the door to reach
+        private float _openPullUntil;      // time to stop pulling and release
+        private int _openGrabAttempts;     // attempts to grab the door
+        private readonly Dictionary<GameObject, float> _recentlyOpened = new Dictionary<GameObject, float>();
+
         public void Init()
         {
             _scanner = new WorldScanner(Api);
@@ -74,7 +82,9 @@ namespace REPOBot.Core
             _nav.Clear();
             _skipUntil.Clear();
             _skipSet.Clear();
+            _recentlyOpened.Clear();
             _dwellTarget = null;
+            _doorToOpen = null;
         }
 
         private void Update()
@@ -153,8 +163,23 @@ namespace REPOBot.Core
             {
                 Phase = RunPhase.Flee;
                 TargetLabel = "FLEE";
+                // Abandon any door we were opening (release it so it isn't mistaken
+                // for a hauled valuable afterwards).
+                if (_doorToOpen != null)
+                {
+                    var g = Api.GetPhysGrabber(LocalPlayerComponent());
+                    if (g != null && Api.HoldingValuable(LocalPlayerComponent())) Api.Release(g);
+                    EndOpen();
+                }
                 Vector3 fleeDir = _steering.Compute(Vector3.zero, threat, fleeing: true);
                 DriveTowardDirection(world, fleeDir, allowSprint: true);
+                return;
+            }
+
+            // 1b) Busy opening a door to reach a valuable.
+            if (_doorToOpen != null)
+            {
+                OpenDoorTick(world);
                 return;
             }
 
@@ -287,13 +312,22 @@ namespace REPOBot.Core
                 _grabAttempts = 0;
             }
 
-            // Only grab when it's actually reachable: within range AND clear line of
-            // sight. This stops grabbing through walls/doors (which breaks items).
-            if (!Api.CanGrab(player, valuableTarget.Component, valuableTarget.Pos, Settings.GrabRange.Value))
+            // Only grab when reachable: within range AND clear line of sight. If a
+            // hinged door (fridge/cupboard/drawer) is in the way, open it first.
+            var check = Api.CheckGrab(player, valuableTarget.Component, valuableTarget.Pos,
+                Settings.GrabRange.Value, out var door);
+            if (check != GrabCheck.Ok)
             {
+                if (check == GrabCheck.BlockedByDoor && Settings.OpenContainers.Value &&
+                    door != null && !RecentlyOpened(door.gameObject))
+                {
+                    StartOpen(door, valuableTarget.GameObject);
+                    return;
+                }
                 if (Time.time - _dwellStart >= Settings.GrabReachSeconds.Value)
                 {
-                    SkipLong(valuableTarget.GameObject, "no line of sight / out of range (door/wall?)");
+                    SkipLong(valuableTarget.GameObject, check == GrabCheck.OutOfRange
+                        ? "out of range" : "no line of sight (wall/locked door?)");
                     _dwellTarget = null;
                 }
                 return;
@@ -322,6 +356,74 @@ namespace REPOBot.Core
                 SkipLong(valuableTarget.GameObject, grabber == null || physObj == null ? "no grab API" : "grab didn't take");
                 _dwellTarget = null;
             }
+        }
+
+        // --- Door opening ---
+
+        private void StartOpen(Component doorPhysObject, GameObject forValuable)
+        {
+            _doorToOpen = doorPhysObject;
+            _doorPos = doorPhysObject.transform.position;
+            _openForValuable = forValuable;
+            _openGrabAttempts = 0;
+            _openPullUntil = 0f;
+            _recentlyOpened[doorPhysObject.gameObject] = Time.time + Settings.OpenCooldownSeconds.Value;
+            if (Settings.VerboseLogging.Value) Log.LogInfo("Opening a door to reach a valuable.");
+        }
+
+        /// <summary>Grab the blocking door, pull it open by backing away, then release.</summary>
+        private void OpenDoorTick(WorldSnapshot world)
+        {
+            Phase = RunPhase.Collect;
+            TargetLabel = "Opening door";
+
+            var player = LocalPlayerComponent();
+            var grabber = Api.GetPhysGrabber(player);
+            if (grabber == null || _doorToOpen == null) { EndOpen(); return; }
+
+            if (!Api.HoldingValuable(player))
+            {
+                // Not holding the door yet -> try to grab it (throttled/capped).
+                if (Time.time - _lastGrabAttempt >= Settings.GrabRetrySeconds.Value)
+                {
+                    _lastGrabAttempt = Time.time;
+                    _openGrabAttempts++;
+                    Api.TryGrab(grabber, _doorToOpen);
+                }
+                StopDriving();
+                if (_openGrabAttempts >= Settings.GrabMaxAttempts.Value && !Api.HoldingValuable(player))
+                {
+                    if (_openForValuable != null) SkipLong(_openForValuable, "couldn't grab door");
+                    EndOpen();
+                }
+                return;
+            }
+
+            // Holding the door: pull it open by driving away from it.
+            if (_openPullUntil <= 0f) _openPullUntil = Time.time + Settings.OpenPullSeconds.Value;
+            Vector3 away = world.PlayerPos - _doorPos; away.y = 0f;
+            if (away.sqrMagnitude < 0.01f) away = -world.PlayerForward;
+            DriveTowardDirection(world, away.normalized, allowSprint: false);
+
+            if (Time.time >= _openPullUntil)
+            {
+                Api.Release(grabber);
+                EndOpen(); // next tick re-evaluates the valuable; LOS should be clear now
+            }
+        }
+
+        private void EndOpen()
+        {
+            _doorToOpen = null;
+            _openForValuable = null;
+            _openPullUntil = 0f;
+            _openGrabAttempts = 0;
+            _dwellTarget = null; // re-arm the dwell timer for the valuable
+        }
+
+        private bool RecentlyOpened(GameObject door)
+        {
+            return door != null && _recentlyOpened.TryGetValue(door, out var until) && Time.time < until;
         }
 
         private void Skip(GameObject go, string why)

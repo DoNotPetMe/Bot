@@ -179,8 +179,9 @@ The two things most likely to need wiring for your build:
   not pinned to a specific patch. Expect to verify a few names for your build
   (the startup report tells you exactly which).
 - **Grabbing is wired but experimental.** The bot grabs valuables via
-  `PhysGrabber.ForceGrabPhysObject`, carries them to the active extraction point,
-  and drops them there. Extraction *completion detection* and the **cart** are
+  `PhysGrabber.ForceGrabPhysObject`, opens hinged containers (fridge/cupboard/
+  drawer doors) that block a valuable, carries items to the active extraction
+  point, and drops them. Extraction *completion detection* and the **cart** are
   still rough — completion is inferred from the extraction `currentState`, and
   the bot doesn't use the C.A.R.T. yet (it's designed for two players to push).
 - **Carried-value isn't read precisely**, so the "extract once carrying $X"

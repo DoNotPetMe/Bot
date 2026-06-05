@@ -49,6 +49,9 @@ namespace REPOBot.Config
         public readonly ConfigEntry<float> GrabRetrySeconds;     // min time between grab attempts
         public readonly ConfigEntry<int> GrabMaxAttempts;        // give up after this many tries
         public readonly ConfigEntry<float> FailedGrabSkipSeconds; // ignore an un-grabbable item this long
+        public readonly ConfigEntry<bool> OpenContainers;        // open fridge/cupboard/drawer doors
+        public readonly ConfigEntry<float> OpenPullSeconds;      // how long to pull a door open
+        public readonly ConfigEntry<float> OpenCooldownSeconds;  // don't retry the same door for this long
         public readonly ConfigEntry<bool> JumpWhenStuck;         // try jumping when stuck on something
 
         // --- Timing / records ---
@@ -124,6 +127,12 @@ namespace REPOBot.Config
                 "Give up on a valuable after this many failed grab attempts, then skip it for a while.");
             FailedGrabSkipSeconds = cfg.Bind("04 Objectives", "FailedGrabSkipSeconds", 120f,
                 "How long to ignore a valuable the bot couldn't grab (out of sight / can't reach), so it doesn't keep returning and re-spamming.");
+            OpenContainers = cfg.Bind("04 Objectives", "OpenContainers", true,
+                "When a valuable is behind a hinged door (fridge/cupboard/drawer), grab the door and pull it open first.");
+            OpenPullSeconds = cfg.Bind("04 Objectives", "OpenPullSeconds", 1.25f,
+                "How long to pull a door open before releasing it.");
+            OpenCooldownSeconds = cfg.Bind("04 Objectives", "OpenCooldownSeconds", 15f,
+                "Don't try to open the same door again for this long (avoids fighting a stuck door).");
             JumpWhenStuck = cfg.Bind("02 Movement", "JumpWhenStuck", true,
                 "Try to jump when the bot stops making progress (helps over small props/ledges).");
 
