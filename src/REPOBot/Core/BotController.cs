@@ -52,6 +52,7 @@ namespace REPOBot.Core
         private float _lastGrabAttempt;    // throttle for grab calls
         private int _grabAttempts;         // attempts on the current dwell target
         private int _stuckCount;           // consecutive stuck events on the way to a goal
+        private GameObject _heldValuable;  // the valuable we grabbed (to drop+skip if too heavy)
 
         // Door opening
         private Component _doorToOpen;     // PhysGrabObject of the door we're opening
@@ -86,6 +87,7 @@ namespace REPOBot.Core
             _recentlyOpened.Clear();
             _dwellTarget = null;
             _doorToOpen = null;
+            _heldValuable = null;
             _stuckCount = 0;
         }
 
@@ -243,6 +245,7 @@ namespace REPOBot.Core
 
         private void DriveTowardGoal(WorldSnapshot world, Vector3 goal, ThreatModel.Assessment threat, ValuableView valuableTarget)
         {
+            bool holding = world.PlayerHoldingValuable;
             _nav.SetGoal(world.PlayerPos, goal);
 
             // The navmesh can't actually reach this valuable (e.g. it's on another
@@ -270,6 +273,19 @@ namespace REPOBot.Core
                 _nav.SetGoal(world.PlayerPos, goal, force: true);
                 if (Settings.JumpWhenStuck.Value) Api.TryJump();
 
+                // Holding something and can't make progress hauling it -> it's too
+                // heavy to move (e.g. no strength upgrade). Drop it and leave it.
+                if (holding && _stuckCount >= 3)
+                {
+                    var g = Api.GetPhysGrabber(LocalPlayerComponent());
+                    if (g != null) Api.Release(g);
+                    if (_heldValuable != null) SkipLong(_heldValuable, "too heavy to haul");
+                    _heldValuable = null;
+                    _stuckCount = 0;
+                    Log.LogInfo("Dropped a valuable - too heavy to move (need a strength upgrade).");
+                    return;
+                }
+
                 if (valuableTarget != null && _stuckCount >= 3)
                 {
                     Skip(valuableTarget.GameObject, "stuck / unreachable");
@@ -291,7 +307,6 @@ namespace REPOBot.Core
             if (_dwellTarget != null && (valuableTarget == null || _dwellTarget != valuableTarget.GameObject))
                 _dwellTarget = null;
 
-            bool holding = world.PlayerHoldingValuable;
             Vector3 seek = _nav.SteerDirection(world.PlayerPos);
             Vector3 move = _steering.Compute(seek, threat, fleeing: false);
 
@@ -328,6 +343,7 @@ namespace REPOBot.Core
                 {
                     var g = Api.GetPhysGrabber(player);
                     if (g != null) { Api.Release(g); Log.LogInfo("Dropped a valuable at extraction."); }
+                    _heldValuable = null;
                 }
                 return;
             }
@@ -378,6 +394,7 @@ namespace REPOBot.Core
             if (Api.HoldingValuable(player))
             {
                 Log.LogInfo($"Grabbed {(valuableTarget.Value > 0 ? "$" + valuableTarget.Value.ToString("0") : "a")} valuable.");
+                _heldValuable = valuableTarget.GameObject;
                 _dwellTarget = null;
                 return;
             }

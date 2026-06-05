@@ -32,6 +32,8 @@ namespace REPOBot.Game
         private static bool _installed;
         private static float _blockedTimer;
         private static float _stepCooldown;
+        private static Vector3 _lastPos;
+        private static bool _hasLastPos;
 
         public static bool Installed => _installed;
         public static bool HasBody => _rb != null;
@@ -89,13 +91,25 @@ namespace REPOBot.Game
             Vector3 tgtH = new Vector3(DesiredVelocity.x, 0f, DesiredVelocity.z);
             Vector3 newH = Vector3.MoveTowards(curH, tgtH, Acceleration * dt);
 
-            // Auto-step: only hop when we genuinely want to move but are basically
-            // stopped (truly blocked by a step), are on the ground, and not already
-            // mid-hop. The cooldown stops the frog-like repeated hopping.
+            // Measure ACTUAL movement from position change. The controller brakes
+            // rb.velocity every frame (it sees no input), so velocity reads near
+            // zero even while we're moving - position delta is the honest signal.
+            Vector3 pos = _rb.position;
+            float horiz = 0f;
+            if (_hasLastPos)
+            {
+                Vector3 d = pos - _lastPos; d.y = 0f;
+                horiz = d.magnitude / Mathf.Max(dt, 0.0001f);
+            }
+            _lastPos = pos;
+            _hasLastPos = true;
+
+            // Auto-step: only hop when we want to move but are genuinely not moving
+            // (truly wedged on a step), are grounded, and not already mid-hop.
             float y = v.y;
             float want = tgtH.magnitude;
             bool grounded = Mathf.Abs(v.y) < 1.5f;
-            if (want > 0.5f && curH.magnitude < 0.4f && grounded) _blockedTimer += dt;
+            if (want > 0.5f && horiz < 0.4f && grounded) _blockedTimer += dt;
             else _blockedTimer = 0f;
 
             if (_stepCooldown > 0f) _stepCooldown -= dt;
@@ -131,6 +145,7 @@ namespace REPOBot.Game
             Active = false;
             _blockedTimer = 0f;
             _stepCooldown = 0f;
+            _hasLastPos = false;
         }
     }
 }
