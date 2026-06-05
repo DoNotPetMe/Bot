@@ -32,6 +32,7 @@
     <Reference Include="UnityEngine">                  <HintPath>$(REPOManagedDir)\UnityEngine.dll</HintPath>                  <Private>false</Private> </Reference>
     <Reference Include="UnityEngine.CoreModule">       <HintPath>$(REPOManagedDir)\UnityEngine.CoreModule.dll</HintPath>       <Private>false</Private> </Reference>
     <Reference Include="UnityEngine.IMGUIModule">      <HintPath>$(REPOManagedDir)\UnityEngine.IMGUIModule.dll</HintPath>      <Private>false</Private> </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule"><HintPath>$(REPOManagedDir)\UnityEngine.TextRenderingModule.dll</HintPath><Private>false</Private> </Reference>
     <Reference Include="UnityEngine.AIModule">         <HintPath>$(REPOManagedDir)\UnityEngine.AIModule.dll</HintPath>         <Private>false</Private> </Reference>
     <Reference Include="UnityEngine.PhysicsModule">    <HintPath>$(REPOManagedDir)\UnityEngine.PhysicsModule.dll</HintPath>    <Private>false</Private> </Reference>
     <Reference Include="UnityEngine.InputLegacyModule"><HintPath>$(REPOManagedDir)\UnityEngine.InputLegacyModule.dll</HintPath><Private>false</Private> </Reference>
