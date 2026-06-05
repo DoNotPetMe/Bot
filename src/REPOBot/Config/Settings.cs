@@ -1,5 +1,6 @@
 using BepInEx.Configuration;
 using REPOBot.Core;
+using REPOBot.Game;
 using UnityEngine;
 
 namespace REPOBot.Config
@@ -24,6 +25,8 @@ namespace REPOBot.Config
         public readonly ConfigEntry<KeyCode> KeyDumpApi;    // dump game API to log (diagnostics)
 
         // --- Movement / pace ---
+        public readonly ConfigEntry<MovementPatch.MoveMode> MovementMode; // native input vs velocity override
+        public readonly ConfigEntry<InputSpace> NativeInputSpace;         // how InputDirection is interpreted
         public readonly ConfigEntry<float> MoveIntensity;       // 0..1, overall speed multiplier
         public readonly ConfigEntry<float> WalkSpeed;           // m/s target velocity when walking
         public readonly ConfigEntry<float> SprintSpeed;         // m/s target velocity when sprinting
@@ -94,6 +97,10 @@ namespace REPOBot.Config
             KeyDumpApi = cfg.Bind("01 Hotkeys", "DumpApi", KeyCode.F7,
                 "Dump the game's real API (PhysGrabber, cart, extraction, camera rig) to the log for diagnostics.");
 
+            MovementMode = cfg.Bind("02 Movement", "MovementMode", MovementPatch.MoveMode.Velocity,
+                "Velocity = override the rigidbody with wall-sliding (reliable default). NativeInput = feed the game's own movement for fully native wall-sliding/stairs (experimental - try it and report; if the bot doesn't move, it falls back to Velocity).");
+            NativeInputSpace = cfg.Bind("02 Movement", "NativeInputSpace", InputSpace.World,
+                "Only for NativeInput. If the bot moves in the WRONG direction (e.g. circles/sideways), switch this between World and CameraRelative.");
             MoveIntensity = cfg.Bind("02 Movement", "MoveIntensity", 1f,
                 new ConfigDescription("Overall speed multiplier (0..1).", new AcceptableValueRange<float>(0f, 1f)));
             WalkSpeed = cfg.Bind("02 Movement", "WalkSpeed", 3f,

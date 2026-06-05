@@ -30,11 +30,6 @@ namespace REPOBot.Game
         /// <summary>Drive toward <paramref name="worldDir"/> (XZ) at <paramref name="speed"/> m/s.</summary>
         public void Drive(Component player, Vector3 worldDir, float speed)
         {
-            // Keep the movement smoothing/auto-step in sync with current settings.
-            MovementPatch.Acceleration = _s.Acceleration.Value;
-            MovementPatch.AutoStep = _s.AutoStep.Value;
-            MovementPatch.StepUpSpeed = _s.StepUpSpeed.Value;
-
             worldDir.y = 0f;
             if (worldDir.sqrMagnitude < 0.0001f || speed <= 0.01f)
             {
@@ -42,12 +37,39 @@ namespace REPOBot.Game
                 return;
             }
             worldDir.Normalize();
-            Vector3 vel = worldDir * speed;
 
-            MovementPatch.SetVelocity(vel);
+            bool useNative = _s.MovementMode.Value == MovementPatch.MoveMode.NativeInput
+                             && MovementPatch.NativeAvailable;
 
-            if (!MovementPatch.Installed)
-                NudgeFallback(player, vel);
+            if (useNative)
+            {
+                MovementPatch.Mode = MovementPatch.MoveMode.NativeInput;
+                Vector3 input = ToInputSpace(worldDir);
+                // Scale magnitude so slower goals (carry/approach) move slower too.
+                float mag = Mathf.Clamp01(speed / Mathf.Max(_s.WalkSpeed.Value, 0.1f));
+                MovementPatch.SetInput(input * mag);
+            }
+            else
+            {
+                MovementPatch.Mode = MovementPatch.MoveMode.Velocity;
+                MovementPatch.Acceleration = _s.Acceleration.Value;
+                MovementPatch.AutoStep = _s.AutoStep.Value;
+                MovementPatch.StepUpSpeed = _s.StepUpSpeed.Value;
+                Vector3 vel = worldDir * speed;
+                MovementPatch.SetVelocity(vel);
+                if (!MovementPatch.Installed) NudgeFallback(player, vel);
+            }
+        }
+
+        /// <summary>Convert a world move dir to the space the game's InputDirection wants.</summary>
+        private Vector3 ToInputSpace(Vector3 worldDir)
+        {
+            if (_s.NativeInputSpace.Value == InputSpace.World) return worldDir;
+            var cam = Camera.main;
+            if (cam == null) return worldDir;
+            Vector3 f = cam.transform.forward; f.y = 0f; f.Normalize();
+            Vector3 r = cam.transform.right; r.y = 0f; r.Normalize();
+            return new Vector3(Vector3.Dot(worldDir, r), 0f, Vector3.Dot(worldDir, f));
         }
 
         public void Stop(Component player)

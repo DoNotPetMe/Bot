@@ -6,37 +6,55 @@ using UnityEngine;
 
 namespace REPOBot.Game
 {
+    /// <summary>Coordinate space the game's InputDirection expects.</summary>
+    public enum InputSpace { World, CameraRelative }
+
     /// <summary>
-    /// Drives the local player by overriding its Rigidbody velocity every physics
-    /// tick, via a Harmony postfix on PlayerController's update method. This is
-    /// deliberately robust: it doesn't depend on the game's private input-field
-    /// names (which change between versions) - it just overwrites whatever
-    /// velocity the controller computed with the bot's desired velocity.
+    /// Drives the local player. Two modes:
     ///
-    /// The bot sets <see cref="DesiredVelocity"/> + <see cref="Active"/> each tick;
-    /// when inactive the patch does nothing and the human keeps full control.
+    ///  - NativeInput (preferred): writes the bot's desired move direction into
+    ///    PlayerController.InputDirection(+Raw) via a Harmony postfix on the
+    ///    controller's Update, so the GAME'S OWN movement code runs - real wall
+    ///    sliding, stairs, acceleration, stamina. This is the "proper" path.
+    ///
+    ///  - Velocity (fallback): overrides the Rigidbody velocity each physics tick.
+    ///    Works everywhere but doesn't get the controller's native collision
+    ///    handling, so the bot adds wall-avoidance/sliding itself.
+    ///
+    /// The bot sets the desired direction/velocity + Active each tick; when
+    /// inactive the patch does nothing and the human keeps full control.
     /// </summary>
     public static class MovementPatch
     {
-        public static volatile bool Active;
-        /// <summary>World-space target velocity (XZ used; Y preserved for gravity).</summary>
-        public static Vector3 DesiredVelocity;
+        public enum MoveMode { Velocity, NativeInput }
 
-        // Tunables pushed in from settings.
+        public static volatile bool Active;
+        public static MoveMode Mode = MoveMode.Velocity;
+
+        /// <summary>Velocity mode: world-space target velocity (XZ; Y preserved).</summary>
+        public static Vector3 DesiredVelocity;
+        /// <summary>Native mode: desired input direction (already in the field's space), magnitude 0..1.</summary>
+        public static Vector3 DesiredInput;
+
+        // Velocity-mode tunables.
         public static float Acceleration = 14f;
-        public static bool AutoStep = true;
+        public static bool AutoStep = false;
         public static float StepUpSpeed = 2.8f;
 
         private static ManualLogSource _log;
         private static Rigidbody _rb;
         private static bool _installed;
+        private static bool _nativeReady;
         private static float _blockedTimer;
         private static float _stepCooldown;
         private static Vector3 _lastPos;
         private static bool _hasLastPos;
 
+        private static FieldInfo _inputDir;
+        private static FieldInfo _inputRaw;
+
         public static bool Installed => _installed;
-        public static bool HasBody => _rb != null;
+        public static bool NativeAvailable => _nativeReady;
 
         public static void Install(Harmony harmony, GameApi api, ManualLogSource log)
         {
@@ -44,27 +62,31 @@ namespace REPOBot.Game
             var pcType = api.PlayerControllerType;
             if (pcType == null)
             {
-                log.LogWarning("MovementPatch: 'PlayerController' type not found - direct movement disabled.");
+                log.LogWarning("MovementPatch: 'PlayerController' type not found - movement disabled.");
                 return;
             }
 
-            // Prefer FixedUpdate (physics), then Update / LateUpdate.
-            MethodInfo target = DeclaredMethod(pcType, "FixedUpdate")
-                             ?? DeclaredMethod(pcType, "Update")
-                             ?? DeclaredMethod(pcType, "LateUpdate");
-            if (target == null)
-            {
-                log.LogWarning("MovementPatch: PlayerController has no Update/FixedUpdate to hook - movement disabled.");
-                return;
-            }
+            _inputDir = api.InputDirectionField;
+            _inputRaw = api.InputDirectionRawField;
+            _nativeReady = _inputDir != null;
 
             try
             {
-                var postfix = new HarmonyMethod(typeof(MovementPatch)
-                    .GetMethod(nameof(AfterTick), BindingFlags.Static | BindingFlags.NonPublic));
-                harmony.Patch(target, postfix: postfix);
-                _installed = true;
-                log.LogInfo($"MovementPatch: hooked PlayerController.{target.Name} for movement control.");
+                // Velocity mode hooks a physics tick.
+                MethodInfo fixedUpdate = DeclaredMethod(pcType, "FixedUpdate") ?? DeclaredMethod(pcType, "Update");
+                if (fixedUpdate != null)
+                    harmony.Patch(fixedUpdate, postfix: new HarmonyMethod(typeof(MovementPatch)
+                        .GetMethod(nameof(AfterFixed), BindingFlags.Static | BindingFlags.NonPublic)));
+
+                // Native-input mode writes InputDirection right after the controller
+                // reads real input each frame (Update), so FixedUpdate moves us.
+                MethodInfo update = DeclaredMethod(pcType, "Update");
+                if (update != null && _nativeReady)
+                    harmony.Patch(update, postfix: new HarmonyMethod(typeof(MovementPatch)
+                        .GetMethod(nameof(AfterUpdate), BindingFlags.Static | BindingFlags.NonPublic)));
+
+                _installed = fixedUpdate != null;
+                log.LogInfo($"MovementPatch: installed (native-input {( _nativeReady ? "available" : "UNAVAILABLE - InputDirection not found")}).");
             }
             catch (Exception ex)
             {
@@ -75,25 +97,34 @@ namespace REPOBot.Game
         private static MethodInfo DeclaredMethod(Type t, string name) =>
             t.GetMethod(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
 
-        // Harmony postfix - runs right after the controller's own movement code.
-        private static void AfterTick(MonoBehaviour __instance)
+        // --- Native input mode: set the controller's input direction ---
+        private static void AfterUpdate(MonoBehaviour __instance)
         {
-            if (!Active) return;
+            if (!Active || Mode != MoveMode.NativeInput || _inputDir == null) return;
+            try
+            {
+                _inputDir.SetValue(__instance, DesiredInput);
+                _inputRaw?.SetValue(__instance, DesiredInput);
+            }
+            catch { /* ignore */ }
+        }
+
+        // --- Velocity mode: override the Rigidbody velocity ---
+        private static void AfterFixed(MonoBehaviour __instance)
+        {
+            if (!Active || Mode != MoveMode.Velocity) return;
             if (_rb == null) _rb = FindBody(__instance);
             if (_rb == null || _rb.isKinematic) return;
 
             float dt = Time.fixedDeltaTime;
             Vector3 v = _rb.velocity;
 
-            // Smoothly accelerate the horizontal velocity toward the target instead
-            // of slamming it - this is what stops items/the player getting bashed.
             Vector3 curH = new Vector3(v.x, 0f, v.z);
             Vector3 tgtH = new Vector3(DesiredVelocity.x, 0f, DesiredVelocity.z);
             Vector3 newH = Vector3.MoveTowards(curH, tgtH, Acceleration * dt);
 
-            // Measure ACTUAL movement from position change. The controller brakes
-            // rb.velocity every frame (it sees no input), so velocity reads near
-            // zero even while we're moving - position delta is the honest signal.
+            // Actual movement from position change (rb.velocity is braked by the
+            // controller, so it's not a reliable "am I moving" signal).
             Vector3 pos = _rb.position;
             float horiz = 0f;
             if (_hasLastPos)
@@ -104,21 +135,18 @@ namespace REPOBot.Game
             _lastPos = pos;
             _hasLastPos = true;
 
-            // Auto-step: only hop when we want to move but are genuinely not moving
-            // (truly wedged on a step), are grounded, and not already mid-hop.
             float y = v.y;
             float want = tgtH.magnitude;
             bool grounded = Mathf.Abs(v.y) < 1.5f;
             if (want > 0.5f && horiz < 0.4f && grounded) _blockedTimer += dt;
             else _blockedTimer = 0f;
-
             if (_stepCooldown > 0f) _stepCooldown -= dt;
 
             if (AutoStep && _blockedTimer >= 0.35f && _stepCooldown <= 0f && grounded)
             {
                 y = StepUpSpeed;
                 _blockedTimer = 0f;
-                _stepCooldown = 0.7f; // don't hop again immediately
+                _stepCooldown = 0.7f;
             }
 
             _rb.velocity = new Vector3(newH.x, y, newH.z);
@@ -130,7 +158,7 @@ namespace REPOBot.Game
             var rb = c.GetComponent<Rigidbody>()
                    ?? c.GetComponentInChildren<Rigidbody>()
                    ?? c.GetComponentInParent<Rigidbody>();
-            if (rb == null) _log?.LogWarning("MovementPatch: no Rigidbody found on the player - cannot drive movement.");
+            if (rb == null) _log?.LogWarning("MovementPatch: no Rigidbody found on the player.");
             return rb;
         }
 
@@ -140,9 +168,16 @@ namespace REPOBot.Game
             Active = true;
         }
 
+        public static void SetInput(Vector3 inputDir)
+        {
+            DesiredInput = inputDir;
+            Active = true;
+        }
+
         public static void Release()
         {
             Active = false;
+            DesiredInput = Vector3.zero;
             _blockedTimer = 0f;
             _stepCooldown = 0f;
             _hasLastPos = false;

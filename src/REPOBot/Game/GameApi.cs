@@ -61,6 +61,8 @@ namespace REPOBot.Game
         private readonly MemberInfoRef _pcInstance;         // PlayerController.instance (static)
         private readonly MemberInfoRef _jumpBuffer;         // PlayerController.JumpInputBuffer (float)
         private readonly MethodInfo _overrideTurn;          // PlayerController.OverrideTurnRotation(Quaternion, float)
+        public readonly FieldInfo InputDirectionField;      // PlayerController.InputDirection (Vector3)
+        public readonly FieldInfo InputDirectionRawField;   // PlayerController.InputDirectionRaw (Vector3)
 
         public bool Usable => PlayerAvatarType != null;
 
@@ -141,6 +143,10 @@ namespace REPOBot.Game
                 PlayerControllerType, "JumpInputBuffer", "JumpInputBufferTimer", "JumpGroundedBuffer");
             _overrideTurn = Report.Track("PlayerController.OverrideTurnRotation",
                 Reflect.Method(PlayerControllerType, "OverrideTurnRotation"));
+            InputDirectionField = (FieldInfo)Report.Track("PlayerController.InputDirection",
+                Reflect.Field(PlayerControllerType, "InputDirection"));
+            InputDirectionRawField = (FieldInfo)Report.Track("PlayerController.InputDirectionRaw",
+                Reflect.Field(PlayerControllerType, "InputDirectionRaw", "InputDirection"));
         }
 
         public void LogDiagnostics()
@@ -317,9 +323,10 @@ namespace REPOBot.Game
         /// through the MIDDLE of doorways instead of scraping the frame. Also
         /// reports how clear the path straight ahead is (0 = wall right there, 1 = clear).
         /// </summary>
-        public Vector3 WallAvoid(Component player, Vector3 moveDir, float feeler, out float forwardClear)
+        public Vector3 WallAvoid(Component player, Vector3 moveDir, float feeler, out float forwardClear, out Vector3 nearWallNormal)
         {
             forwardClear = 1f;
+            nearWallNormal = Vector3.zero;
             if (player == null) return Vector3.zero;
             moveDir.y = 0f;
             if (moveDir.sqrMagnitude < 0.0001f) return Vector3.zero;
@@ -328,6 +335,7 @@ namespace REPOBot.Game
             Vector3 origin = player.transform.position + Vector3.up * 0.7f;
             Transform pRoot = player.transform.root;
             Vector3 repulse = Vector3.zero;
+            float nearest = float.PositiveInfinity;
 
             // (angle, weight) - the forward ray matters most.
             var arc = new[] { (0f, 1f), (22f, 0.8f), (-22f, 0.8f), (48f, 0.5f), (-48f, 0.5f) };
@@ -339,9 +347,17 @@ namespace REPOBot.Game
                 float closeness = 1f - Mathf.Clamp01(hit.distance / feeler);
                 Vector3 away = Vector3.ProjectOnPlane(hit.normal, Vector3.up);
                 if (away.sqrMagnitude < 0.001f) away = -dir;   // head-on wall
-                repulse += away.normalized * (closeness * f.Item2);
+                away.Normalize();
+                repulse += away * (closeness * f.Item2);
 
                 if (f.Item1 == 0f) forwardClear = Mathf.Clamp01(hit.distance / feeler);
+
+                // Remember the closest wall's (horizontal) normal for wall-sliding.
+                if (hit.distance < nearest)
+                {
+                    nearest = hit.distance;
+                    nearWallNormal = away;
+                }
             }
             repulse.y = 0f;
             return repulse;

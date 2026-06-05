@@ -319,11 +319,20 @@ namespace REPOBot.Core
             // of scraping the frame. Fade it out near the goal so we can still walk
             // right up to a valuable sitting against a wall.
             var player = LocalPlayerComponent();
-            Vector3 wall = Api.WallAvoid(player, move, Settings.WallFeeler.Value, out float forwardClear);
+            Vector3 wall = Api.WallAvoid(player, move, Settings.WallFeeler.Value, out float forwardClear, out Vector3 wallNormal);
             float wallW = Settings.WallAvoidWeight.Value * Mathf.Clamp01(dist / Settings.SlowRadius.Value);
             move += wall * wallW;
             move.y = 0f;
             if (move.sqrMagnitude > 0.0001f) move.Normalize();
+
+            // Wall-slide: if we're pushing into a close wall, project the move along
+            // the wall surface so we slide past it instead of grinding into it.
+            if (forwardClear < 0.5f && wallNormal.sqrMagnitude > 0.001f &&
+                Vector3.Dot(move, wallNormal) < 0f)
+            {
+                Vector3 slid = Vector3.ProjectOnPlane(move, wallNormal);
+                if (slid.sqrMagnitude > 0.0001f) move = slid.normalized;
+            }
 
             bool sprintOk = !holding && Settings.AllowSprint.Value && ShouldSprint(threat) && forwardClear > 0.6f;
             float speed = TravelSpeed(world, holding, sprintOk);
