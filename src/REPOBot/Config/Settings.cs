@@ -24,6 +24,8 @@ namespace REPOBot.Config
 
         // --- Movement / pace ---
         public readonly ConfigEntry<float> MoveIntensity;       // 0..1, how hard to push the stick
+        public readonly ConfigEntry<float> WalkSpeed;           // m/s target velocity when walking
+        public readonly ConfigEntry<float> SprintSpeed;         // m/s target velocity when sprinting
         public readonly ConfigEntry<bool> AllowSprint;          // permit sprinting when safe
         public readonly ConfigEntry<float> ArriveRadius;        // how close counts as "reached"
         public readonly ConfigEntry<float> StuckSeconds;        // replan if no progress this long
@@ -68,7 +70,11 @@ namespace REPOBot.Config
                 "Clear the saved best time for the current level.");
 
             MoveIntensity = cfg.Bind("02 Movement", "MoveIntensity", 1f,
-                new ConfigDescription("How hard to push movement (0..1).", new AcceptableValueRange<float>(0f, 1f)));
+                new ConfigDescription("Overall speed multiplier (0..1).", new AcceptableValueRange<float>(0f, 1f)));
+            WalkSpeed = cfg.Bind("02 Movement", "WalkSpeed", 4f,
+                "Target velocity (m/s) the bot drives at when walking. Tune to match your game feel.");
+            SprintSpeed = cfg.Bind("02 Movement", "SprintSpeed", 7f,
+                "Target velocity (m/s) the bot drives at when sprinting.");
             AllowSprint = cfg.Bind("02 Movement", "AllowSprint", true,
                 "Let the bot sprint when it judges the path safe.");
             ArriveRadius = cfg.Bind("02 Movement", "ArriveRadius", 1.4f,

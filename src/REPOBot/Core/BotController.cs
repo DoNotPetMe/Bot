@@ -45,7 +45,7 @@ namespace REPOBot.Core
         public void Init()
         {
             _scanner = new WorldScanner(Api);
-            _input = new InputDriver(Api, Log);
+            _input = new InputDriver(Api, Settings, Log);
             _threat = new ThreatModel(Settings);
             _selector = new TargetSelector(Settings);
             _steering = new Steering(Settings);
@@ -224,7 +224,7 @@ namespace REPOBot.Core
                     intensity = Mathf.Clamp01(intensity + Settings.BeatBestAggression.Value);
             }
 
-            _input.Drive(LocalPlayerComponent(), worldDir, intensity, allowSprint, Camera.main);
+            _input.Drive(LocalPlayerComponent(), worldDir, intensity, allowSprint);
         }
 
         private bool ShouldSprint(ThreatModel.Assessment threat)

@@ -165,10 +165,11 @@ The two things most likely to need wiring for your build:
 
 - **`ValuableObject` value field** (`GameApi._valuableValue`) — only affects
   value-based prioritisation; collection still works without it.
-- **Character input** (`InputDriver`) — this is *how the bot moves*. It first
-  tries to write a movement-input field on the player; if none is found it falls
-  back to nudging the player's Rigidbody so you can see it working while you wire
-  up the proper field for your version. See the comments in `InputDriver.cs`.
+- **Movement** is driven by `MovementPatch` — a Harmony postfix on
+  `PlayerController`'s per-tick update that overrides the player's Rigidbody
+  velocity. This avoids depending on private input-field names. If the patch
+  can't install, `InputDriver` falls back to nudging the Rigidbody directly.
+  Tune `WalkSpeed`/`SprintSpeed` in config to match your game feel.
 
 ---
 
@@ -177,8 +178,11 @@ The two things most likely to need wiring for your build:
 - **Symbol names are best-effort.** They're drawn from the community decompile,
   not pinned to a specific patch. Expect to verify a few names for your build
   (the startup report tells you exactly which).
-- **Input wiring is the hard part.** Movement is intentionally the one place that
-  may need per-version work; everything feeds into a single `InputDriver`.
+- **Grabbing isn't wired yet.** Movement, navigation and monster-avoidance work,
+  but actually *grabbing* valuables is aim-based in R.E.P.O. (PhysGrabber grabs
+  whatever the camera points at), so it needs camera aim + a grab input — that's
+  the next milestone. Right now the bot will path to valuables and to extraction
+  but won't pick items up on its own.
 - **Carried-value isn't read precisely**, so the "extract once carrying $X"
   policy is conservative; the default behaviour (collect everything, then
   extract) doesn't depend on it.

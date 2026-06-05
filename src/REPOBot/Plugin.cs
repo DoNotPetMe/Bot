@@ -60,8 +60,10 @@ namespace REPOBot
                 hud.Settings = settings;
                 hud.Controller = controller;
 
-                // Harmony is set up for future game patches (none required today).
+                // Harmony: install the movement override (drives the player by
+                // overriding PlayerController's velocity each physics tick).
                 var harmony = new Harmony(Guid);
+                MovementPatch.Install(harmony, api, Log);
                 harmony.PatchAll();
 
                 Log.LogInfo($"{Name} {Version} loaded. Toggle with {settings.KeyToggle.Value}, " +

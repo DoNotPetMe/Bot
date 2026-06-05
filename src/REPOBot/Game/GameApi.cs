@@ -25,6 +25,7 @@ namespace REPOBot.Game
 
         // Resolved game types
         public readonly Type PlayerAvatarType;
+        public readonly Type PlayerControllerType;
         public readonly Type EnemyType;
         public readonly Type ValuableType;
         public readonly Type ExtractionType;
@@ -50,7 +51,9 @@ namespace REPOBot.Game
             _log = log;
 
             PlayerAvatarType = Report.Track("type PlayerAvatar",
-                Reflect.FindType("PlayerAvatar", "PlayerController", "Player"));
+                Reflect.FindType("PlayerAvatar", "Player"));
+            PlayerControllerType = Report.Track("type PlayerController",
+                Reflect.FindType("PlayerController", "PlayerMovement", "PlayerControllerMovement"));
             EnemyType = Report.Track("type Enemy",
                 Reflect.FindType("EnemyParent", "Enemy", "EnemyMain"));
             ValuableType = Report.Track("type ValuableObject",
@@ -85,13 +88,15 @@ namespace REPOBot.Game
                 ValuableType, "dollarValueCurrent", "dollarValue", "dollarValueOriginal", "value");
 
             _enemyOnHunt = MemberInfoRef.Resolve(Report, "Enemy.onHunt/alerted",
-                EnemyType, "onHunt", "isHunting", "alerted", "hunting", "investigate");
+                EnemyType, "onHunt", "isHunting", "alerted", "hunting", "investigate",
+                "onInvestigate", "stateInvestigate", "enemyActive", "Enabled");
 
             _extractionState = MemberInfoRef.Resolve(Report, "ExtractionPoint.active/state",
                 ExtractionType, "isActive", "active", "currentState", "state", "extractionActive");
 
             _extractionComplete = MemberInfoRef.Resolve(Report, "ExtractionPoint.complete",
-                ExtractionType, "isComplete", "complete", "extractionComplete", "haulComplete");
+                ExtractionType, "isComplete", "complete", "extractionComplete", "haulComplete",
+                "extractionSuccess", "success", "completed");
         }
 
         public void LogDiagnostics()
