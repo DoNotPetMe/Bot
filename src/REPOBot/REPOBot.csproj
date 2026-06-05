@@ -13,10 +13,13 @@
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
   </PropertyGroup>
 
-  <!-- BepInEx + HarmonyX come from NuGet (restored on your machine). -->
+  <!--
+    BepInEx + HarmonyX come from the BepInEx NuGet feed (configured in the
+    repo-root NuGet.config - these packages are NOT on nuget.org). HarmonyX
+    (the HarmonyLib namespace) is pulled in transitively by BepInEx.Core.
+  -->
   <ItemGroup>
     <PackageReference Include="BepInEx.Core" Version="5.*" />
-    <PackageReference Include="BepInEx.PluginInfoProps" Version="2.*" />
   </ItemGroup>
 
   <!--
