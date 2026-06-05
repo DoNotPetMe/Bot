@@ -45,6 +45,10 @@ namespace REPOBot.Config
         public readonly ConfigEntry<float> GrabReachSeconds;     // dwell at an item before giving up
         public readonly ConfigEntry<float> UnreachableSkipSeconds; // how long to ignore a skipped item
         public readonly ConfigEntry<float> DeliveredRadius;      // valuables within this of extraction = delivered
+        public readonly ConfigEntry<float> GrabRange;            // only grab within this distance (LOS-gated)
+        public readonly ConfigEntry<float> GrabRetrySeconds;     // min time between grab attempts
+        public readonly ConfigEntry<int> GrabMaxAttempts;        // give up after this many tries
+        public readonly ConfigEntry<bool> JumpWhenStuck;         // try jumping when stuck on something
 
         // --- Timing / records ---
         public readonly ConfigEntry<bool> ShowTimer;
@@ -111,6 +115,14 @@ namespace REPOBot.Config
                 "How long to ignore a valuable the bot couldn't collect/reach before trying it again.");
             DeliveredRadius = cfg.Bind("04 Objectives", "DeliveredRadius", 3.5f,
                 "Valuables within this distance of the extraction point are treated as already delivered.");
+            GrabRange = cfg.Bind("04 Objectives", "GrabRange", 2.5f,
+                "Only grab a valuable when it is within this distance AND in clear line of sight (prevents grabbing through walls/doors).");
+            GrabRetrySeconds = cfg.Bind("04 Objectives", "GrabRetrySeconds", 0.4f,
+                "Minimum time between grab attempts (stops the constant grab-sound spam).");
+            GrabMaxAttempts = cfg.Bind("04 Objectives", "GrabMaxAttempts", 5,
+                "Give up on a valuable after this many failed grab attempts, then skip it for a while.");
+            JumpWhenStuck = cfg.Bind("02 Movement", "JumpWhenStuck", true,
+                "Try to jump when the bot stops making progress (helps over small props/ledges).");
 
             ShowTimer = cfg.Bind("05 Timing", "ShowTimer", true,
                 "Show the run timer on the HUD.");

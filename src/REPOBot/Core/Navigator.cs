@@ -27,6 +27,10 @@ namespace REPOBot.Core
 
         public bool HasPath => _hasPath && _path.status != NavMeshPathStatus.PathInvalid;
 
+        /// <summary>True when a path was computed but can't fully reach the goal
+        /// (e.g. the target is on another floor with no route) - i.e. unreachable.</summary>
+        public bool PathPartial => _hasPath && _path.status == NavMeshPathStatus.PathPartial;
+
         /// <summary>(Re)plan toward a goal, throttled by RepathInterval.</summary>
         public void SetGoal(Vector3 from, Vector3 goal, bool force = false)
         {

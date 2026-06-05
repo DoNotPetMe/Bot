@@ -50,6 +50,7 @@ namespace REPOBot.Core
         private GameObject _dwellTarget;   // valuable we're currently parked at
         private float _dwellStart;         // when we arrived at it
         private float _lastGrabAttempt;    // throttle for grab calls
+        private int _grabAttempts;         // attempts on the current dwell target
 
         public void Init()
         {
@@ -216,6 +217,15 @@ namespace REPOBot.Core
         {
             _nav.SetGoal(world.PlayerPos, goal);
 
+            // The navmesh can't actually reach this valuable (e.g. it's on another
+            // floor / behind a wall with no route): skip it instead of fixating.
+            if (valuableTarget != null && _nav.PathPartial)
+            {
+                Skip(valuableTarget.GameObject, "no navmesh route");
+                StopDriving();
+                return;
+            }
+
             // Arrived: stop pushing so we don't vibrate on top of the goal.
             if (_nav.Arrived(world.PlayerPos))
             {
@@ -224,13 +234,14 @@ namespace REPOBot.Core
                 return;
             }
 
-            // Not at the goal but making no progress -> replan.
+            // Not at the goal but making no progress -> replan, try a jump, and if
+            // it's a valuable we keep failing to reach, skip it.
             if (_nav.UpdateStuck(world.PlayerPos, Time.fixedDeltaTime))
             {
                 _nav.SetGoal(world.PlayerPos, goal, force: true);
-                // If we keep failing to reach a valuable, skip it and move on.
+                if (Settings.JumpWhenStuck.Value) Api.TryJump();
                 if (valuableTarget != null)
-                    Skip(valuableTarget.GameObject, "unreachable");
+                    Skip(valuableTarget.GameObject, "stuck / unreachable");
                 if (Settings.VerboseLogging.Value) Log.LogInfo("Stuck - replanning path.");
             }
 
@@ -273,25 +284,40 @@ namespace REPOBot.Core
             {
                 _dwellTarget = valuableTarget.GameObject;
                 _dwellStart = Time.time;
+                _grabAttempts = 0;
+            }
+
+            // Only grab when it's actually reachable: within range AND clear line of
+            // sight. This stops grabbing through walls/doors (which breaks items).
+            if (!Api.CanGrab(player, valuableTarget.Component, valuableTarget.Pos, Settings.GrabRange.Value))
+            {
+                if (Time.time - _dwellStart >= Settings.GrabReachSeconds.Value)
+                {
+                    Skip(valuableTarget.GameObject, "no line of sight / out of range");
+                    _dwellTarget = null;
+                }
+                return;
             }
 
             var grabber = Api.GetPhysGrabber(player);
             var physObj = Api.GetValuablePhysObject(valuableTarget.Component);
 
-            // Attempt the grab, throttled so we don't re-fire every physics tick.
-            if (grabber != null && physObj != null && Time.time - _lastGrabAttempt >= 0.25f)
+            // Attempt the grab, throttled and capped so we don't spam the grab sound.
+            if (grabber != null && physObj != null && Time.time - _lastGrabAttempt >= Settings.GrabRetrySeconds.Value)
             {
                 _lastGrabAttempt = Time.time;
-                if (Api.TryGrab(grabber, physObj) && Api.HoldingValuable(player))
-                {
-                    Log.LogInfo($"Grabbed {(valuableTarget.Value > 0 ? "$" + valuableTarget.Value.ToString("0") : "a")} valuable.");
-                    _dwellTarget = null;
-                    return;
-                }
+                _grabAttempts++;
+                Api.TryGrab(grabber, physObj);
             }
 
-            // Couldn't grab within the dwell window -> skip it for a while.
-            if (Time.time - _dwellStart >= Settings.GrabReachSeconds.Value)
+            if (Api.HoldingValuable(player))
+            {
+                Log.LogInfo($"Grabbed {(valuableTarget.Value > 0 ? "$" + valuableTarget.Value.ToString("0") : "a")} valuable.");
+                _dwellTarget = null;
+                return;
+            }
+
+            if (grabber == null || physObj == null || _grabAttempts >= Settings.GrabMaxAttempts.Value)
             {
                 Skip(valuableTarget.GameObject, grabber == null || physObj == null ? "no grab API" : "grab didn't take");
                 _dwellTarget = null;

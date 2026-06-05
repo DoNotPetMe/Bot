@@ -48,6 +48,10 @@ namespace REPOBot.Game
         private readonly MethodInfo _overrideGrab;          // PhysGrabber.OverrideGrab(PhysGrabObject, float, bool)
         private readonly MethodInfo _releaseObject;         // PhysGrabber.ReleaseObject(int, float)
         private readonly MemberInfoRef _valuablePhysObject; // ValuableObject.physGrabObject (PhysGrabObject)
+        private readonly MemberInfoRef _grabbedFlag;        // PhysGrabber.grabbed (bool)
+        private readonly MemberInfoRef _grabRangeField;     // PhysGrabber.grabRange (float)
+        private readonly MemberInfoRef _pcInstance;         // PlayerController.instance (static)
+        private readonly MemberInfoRef _jumpBuffer;         // PlayerController.JumpInputBuffer (float)
 
         public bool Usable => PlayerAvatarType != null;
 
@@ -107,6 +111,15 @@ namespace REPOBot.Game
                 Reflect.Method(PhysGrabberType, "OverrideGrab"));
             _releaseObject = Report.Track("PhysGrabber.ReleaseObject",
                 Reflect.Method(PhysGrabberType, "ReleaseObject"));
+
+            _grabbedFlag = MemberInfoRef.Resolve(Report, "PhysGrabber.grabbed",
+                PhysGrabberType, "grabbed");
+            _grabRangeField = MemberInfoRef.Resolve(Report, "PhysGrabber.grabRange",
+                PhysGrabberType, "grabRange");
+            _pcInstance = MemberInfoRef.Resolve(Report, "PlayerController.instance",
+                PlayerControllerType, "instance");
+            _jumpBuffer = MemberInfoRef.Resolve(Report, "PlayerController.JumpInputBuffer",
+                PlayerControllerType, "JumpInputBuffer", "JumpInputBufferTimer", "JumpGroundedBuffer");
         }
 
         public void LogDiagnostics()
@@ -169,12 +182,65 @@ namespace REPOBot.Game
 
         public bool HoldingValuable(Component player)
         {
-            if (player == null || _playerGrabber == null) return false;
-            if (!_playerGrabber.TryGet(player, out var grabberObj) || grabberObj == null) return false;
-            if (_grabberHeldObject == null) return false;
-            if (!_grabberHeldObject.TryGet(grabberObj, out var held)) return false;
-            // held may be a UnityEngine.Object (transform/component) or null.
-            return held is UnityEngine.Object uo && uo != null;
+            var grabber = GetPhysGrabber(player);
+            if (grabber == null) return false;
+            // Prefer the explicit 'grabbed' bool; fall back to the held Rigidbody.
+            if (_grabbedFlag != null && _grabbedFlag.TryGet(grabber, out var gv) && gv is bool gb)
+                return gb;
+            if (_grabberHeldObject != null && _grabberHeldObject.TryGet(grabber, out var held))
+                return held is UnityEngine.Object uo && uo != null;
+            return false;
+        }
+
+        /// <summary>The grabber's configured grab range, or the fallback if unknown.</summary>
+        public float GrabRange(Component grabber, float fallback)
+        {
+            if (grabber != null && _grabRangeField != null &&
+                _grabRangeField.TryGet(grabber, out var v) && Reflect.TryGetFloat(v, out var f) && f > 0f)
+                return f;
+            return fallback;
+        }
+
+        /// <summary>
+        /// True only if the valuable is within <paramref name="maxRange"/> of the
+        /// camera AND there's clear line of sight to it (nothing solid in between).
+        /// Prevents grabbing through walls/doors (which yanks and breaks items).
+        /// </summary>
+        public bool CanGrab(Component player, Component valuable, Vector3 itemPos, float maxRange)
+        {
+            if (player == null || valuable == null) return false;
+
+            var cam = Camera.main;
+            Vector3 eye = cam != null ? cam.transform.position : player.transform.position + Vector3.up * 1.4f;
+            Vector3 to = itemPos - eye;
+            float dist = to.magnitude;
+            if (dist > maxRange) return false;
+            if (dist < 0.05f) return true;
+
+            var hits = Physics.RaycastAll(eye, to / dist, dist + 0.5f, ~0, QueryTriggerInteraction.Ignore);
+            if (hits.Length == 0) return true;
+            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+            Transform pRoot = player.transform.root;
+            Transform vTr = valuable.transform;
+            foreach (var h in hits)
+            {
+                var t = h.collider != null ? h.collider.transform : null;
+                if (t == null) continue;
+                if (pRoot != null && t.IsChildOf(pRoot)) continue;   // ignore the player's own colliders
+                if (t == vTr || t.IsChildOf(vTr)) return true;       // hit the item itself: clear
+                if (h.distance >= dist - 0.4f) return true;          // ray reached the item's vicinity: clear
+                return false;                                        // something solid blocks the view
+            }
+            return true;
+        }
+
+        /// <summary>Best-effort jump (buffers a jump input on the PlayerController).</summary>
+        public void TryJump()
+        {
+            if (_pcInstance == null || _jumpBuffer == null) return;
+            if (!_pcInstance.TryGet(null, out var inst) || inst == null) return;
+            _jumpBuffer.TrySet(inst, 0.2f);
         }
 
         // --- Valuables ---
@@ -279,6 +345,17 @@ namespace REPOBot.Game
             {
                 if (_field != null) { value = _field.GetValue(_field.IsStatic ? null : instance); return true; }
                 if (_prop != null && _prop.CanRead) { value = _prop.GetValue(instance); return true; }
+            }
+            catch { /* ignore */ }
+            return false;
+        }
+
+        public bool TrySet(object instance, object value)
+        {
+            try
+            {
+                if (_field != null) { _field.SetValue(_field.IsStatic ? null : instance, value); return true; }
+                if (_prop != null && _prop.CanWrite) { _prop.SetValue(instance, value); return true; }
             }
             catch { /* ignore */ }
             return false;
