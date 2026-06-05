@@ -285,6 +285,12 @@ namespace REPOBot.Core
                 LastBest = null;
                 Log.LogInfo($"Cleared best time for '{LevelKey}'.");
             }
+
+            if (Input.GetKeyDown(Settings.KeyDumpApi.Value))
+            {
+                Log.LogInfo("Dumping game API (this may be long)...");
+                ApiDump.DumpAll(Api, Log);
+            }
         }
     }
 }

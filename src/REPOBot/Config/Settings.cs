@@ -21,6 +21,7 @@ namespace REPOBot.Config
         public readonly ConfigEntry<KeyCode> KeyCycleMode;  // SafeCollect <-> Speedrun
         public readonly ConfigEntry<KeyCode> KeyPanic;      // instant off + hands back to player
         public readonly ConfigEntry<KeyCode> KeyResetBest;  // clear best time for this level
+        public readonly ConfigEntry<KeyCode> KeyDumpApi;    // dump game API to log (diagnostics)
 
         // --- Movement / pace ---
         public readonly ConfigEntry<float> MoveIntensity;       // 0..1, how hard to push the stick
@@ -68,6 +69,8 @@ namespace REPOBot.Config
                 "Immediately disable the bot and return control to you.");
             KeyResetBest = cfg.Bind("01 Hotkeys", "ResetBest", KeyCode.F11,
                 "Clear the saved best time for the current level.");
+            KeyDumpApi = cfg.Bind("01 Hotkeys", "DumpApi", KeyCode.F7,
+                "Dump the game's real API (PhysGrabber, cart, extraction, camera rig) to the log for diagnostics.");
 
             MoveIntensity = cfg.Bind("02 Movement", "MoveIntensity", 1f,
                 new ConfigDescription("Overall speed multiplier (0..1).", new AcceptableValueRange<float>(0f, 1f)));
