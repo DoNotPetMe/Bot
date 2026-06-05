@@ -33,6 +33,9 @@ namespace REPOBot.Config
         public readonly ConfigEntry<float> MinApproachSpeed;    // slowest crawl when right next to a goal
         public readonly ConfigEntry<bool> AutoStep;             // hop over steps/small props when blocked
         public readonly ConfigEntry<float> StepUpSpeed;         // upward speed of the auto-step hop
+        public readonly ConfigEntry<float> WallAvoidWeight;     // strength of wall-avoidance steering
+        public readonly ConfigEntry<float> WallFeeler;          // how far ahead to feel for walls (m)
+        public readonly ConfigEntry<bool> FaceMovement;         // turn to look where it's going / at items
         public readonly ConfigEntry<bool> AllowSprint;          // permit sprinting when safe
         public readonly ConfigEntry<float> ArriveRadius;        // how close counts as "reached"
         public readonly ConfigEntry<float> StuckSeconds;        // replan if no progress this long
@@ -105,10 +108,16 @@ namespace REPOBot.Config
                 "Start easing off speed once within this distance of the goal.");
             MinApproachSpeed = cfg.Bind("02 Movement", "MinApproachSpeed", 1f,
                 "Slowest crawl speed when right next to a goal.");
-            AutoStep = cfg.Bind("02 Movement", "AutoStep", true,
-                "Hop upward when blocked at foot height (climbs stairs / small props like desks).");
+            AutoStep = cfg.Bind("02 Movement", "AutoStep", false,
+                "Hop upward when truly wedged on a step. Off by default - the game climbs stairs on its own; enable only if it can't get up something.");
             StepUpSpeed = cfg.Bind("02 Movement", "StepUpSpeed", 2.8f,
-                "Upward speed of the auto-step hop. Lower = gentler (less 'frog' hopping).");
+                "Upward speed of the auto-step hop (only used if AutoStep is on).");
+            WallAvoidWeight = cfg.Bind("02 Movement", "WallAvoidWeight", 1.6f,
+                "How strongly to steer away from nearby walls. Higher = hugs the centre of doorways/corridors more.");
+            WallFeeler = cfg.Bind("02 Movement", "WallFeeler", 1.4f,
+                "How far ahead (m) the bot feels for walls to steer around them.");
+            FaceMovement = cfg.Bind("02 Movement", "FaceMovement", true,
+                "Turn the view to look where the bot is going (and at items when grabbing), like a real player.");
             AllowSprint = cfg.Bind("02 Movement", "AllowSprint", true,
                 "Let the bot sprint when it judges the path safe and clear.");
             ArriveRadius = cfg.Bind("02 Movement", "ArriveRadius", 1.4f,

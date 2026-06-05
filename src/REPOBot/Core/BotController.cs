@@ -310,14 +310,29 @@ namespace REPOBot.Core
             Vector3 seek = _nav.SteerDirection(world.PlayerPos);
             Vector3 move = _steering.Compute(seek, threat, fleeing: false);
 
-            bool sprintOk = !holding && Settings.AllowSprint.Value && ShouldSprint(threat);
+            float dist = Vector3.Distance(world.PlayerPos, goal);
+
+            // Steer away from walls so we pass through the MIDDLE of doorways instead
+            // of scraping the frame. Fade it out near the goal so we can still walk
+            // right up to a valuable sitting against a wall.
+            var player = LocalPlayerComponent();
+            Vector3 wall = Api.WallAvoid(player, move, Settings.WallFeeler.Value, out float forwardClear);
+            float wallW = Settings.WallAvoidWeight.Value * Mathf.Clamp01(dist / Settings.SlowRadius.Value);
+            move += wall * wallW;
+            move.y = 0f;
+            if (move.sqrMagnitude > 0.0001f) move.Normalize();
+
+            bool sprintOk = !holding && Settings.AllowSprint.Value && ShouldSprint(threat) && forwardClear > 0.6f;
             float speed = TravelSpeed(world, holding, sprintOk);
 
-            // Ease off as we approach the goal so we don't overshoot/bash into it.
-            float dist = Vector3.Distance(world.PlayerPos, goal);
+            // Ease off near the goal AND when a wall is close ahead (so we don't ram it).
             if (dist < Settings.SlowRadius.Value)
                 speed = Mathf.Lerp(Settings.MinApproachSpeed.Value, speed,
                     Mathf.Clamp01(dist / Settings.SlowRadius.Value));
+            speed *= Mathf.Lerp(0.45f, 1f, forwardClear);
+
+            // Look where we're going, like a player.
+            if (Settings.FaceMovement.Value) Api.FaceDirection(move, 0.25f);
 
             DriveDir(move, speed);
             _stuckCount = 0; // making progress
@@ -379,6 +394,10 @@ namespace REPOBot.Core
                 }
                 return;
             }
+
+            // Face the item so the view/aim points at it, like a player would.
+            if (Settings.FaceMovement.Value)
+                Api.FaceDirection(valuableTarget.Pos - player.transform.position, 0.3f);
 
             var grabber = Api.GetPhysGrabber(player);
             var physObj = Api.GetValuablePhysObject(valuableTarget.Component);

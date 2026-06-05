@@ -60,6 +60,7 @@ namespace REPOBot.Game
         private readonly MemberInfoRef _grabRangeField;     // PhysGrabber.grabRange (float)
         private readonly MemberInfoRef _pcInstance;         // PlayerController.instance (static)
         private readonly MemberInfoRef _jumpBuffer;         // PlayerController.JumpInputBuffer (float)
+        private readonly MethodInfo _overrideTurn;          // PlayerController.OverrideTurnRotation(Quaternion, float)
 
         public bool Usable => PlayerAvatarType != null;
 
@@ -138,6 +139,8 @@ namespace REPOBot.Game
                 PlayerControllerType, "instance");
             _jumpBuffer = MemberInfoRef.Resolve(Report, "PlayerController.JumpInputBuffer",
                 PlayerControllerType, "JumpInputBuffer", "JumpInputBufferTimer", "JumpGroundedBuffer");
+            _overrideTurn = Report.Track("PlayerController.OverrideTurnRotation",
+                Reflect.Method(PlayerControllerType, "OverrideTurnRotation"));
         }
 
         public void LogDiagnostics()
@@ -290,6 +293,75 @@ namespace REPOBot.Game
             if (_pcInstance == null || _jumpBuffer == null) return;
             if (!_pcInstance.TryGet(null, out var inst) || inst == null) return;
             _jumpBuffer.TrySet(inst, 0.2f);
+        }
+
+        /// <summary>Turn the player to face <paramref name="worldDir"/> (yaw) - makes
+        /// the bot "look where it's going" / aim at items, like a real player.</summary>
+        public void FaceDirection(Vector3 worldDir, float time)
+        {
+            if (_overrideTurn == null || _pcInstance == null) return;
+            worldDir.y = 0f;
+            if (worldDir.sqrMagnitude < 0.0001f) return;
+            try
+            {
+                if (!_pcInstance.TryGet(null, out var inst) || inst == null) return;
+                var rot = Quaternion.LookRotation(worldDir.normalized, Vector3.up);
+                _overrideTurn.Invoke(inst, new object[] { rot, time });
+            }
+            catch { /* best effort */ }
+        }
+
+        /// <summary>
+        /// "Feeler" wall avoidance: casts rays in a forward arc and returns a
+        /// steering vector that pushes away from nearby walls, so the bot goes
+        /// through the MIDDLE of doorways instead of scraping the frame. Also
+        /// reports how clear the path straight ahead is (0 = wall right there, 1 = clear).
+        /// </summary>
+        public Vector3 WallAvoid(Component player, Vector3 moveDir, float feeler, out float forwardClear)
+        {
+            forwardClear = 1f;
+            if (player == null) return Vector3.zero;
+            moveDir.y = 0f;
+            if (moveDir.sqrMagnitude < 0.0001f) return Vector3.zero;
+            moveDir.Normalize();
+
+            Vector3 origin = player.transform.position + Vector3.up * 0.7f;
+            Transform pRoot = player.transform.root;
+            Vector3 repulse = Vector3.zero;
+
+            // (angle, weight) - the forward ray matters most.
+            var arc = new[] { (0f, 1f), (22f, 0.8f), (-22f, 0.8f), (48f, 0.5f), (-48f, 0.5f) };
+            foreach (var f in arc)
+            {
+                Vector3 dir = Quaternion.AngleAxis(f.Item1, Vector3.up) * moveDir;
+                if (!RaycastIgnoringSelf(origin, dir, feeler, pRoot, out var hit)) continue;
+
+                float closeness = 1f - Mathf.Clamp01(hit.distance / feeler);
+                Vector3 away = Vector3.ProjectOnPlane(hit.normal, Vector3.up);
+                if (away.sqrMagnitude < 0.001f) away = -dir;   // head-on wall
+                repulse += away.normalized * (closeness * f.Item2);
+
+                if (f.Item1 == 0f) forwardClear = Mathf.Clamp01(hit.distance / feeler);
+            }
+            repulse.y = 0f;
+            return repulse;
+        }
+
+        private bool RaycastIgnoringSelf(Vector3 origin, Vector3 dir, float dist, Transform pRoot, out RaycastHit hit)
+        {
+            hit = default;
+            var hits = Physics.RaycastAll(origin, dir.normalized, dist, ~0, QueryTriggerInteraction.Ignore);
+            if (hits.Length == 0) return false;
+            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+            foreach (var h in hits)
+            {
+                var t = h.collider != null ? h.collider.transform : null;
+                if (t == null) continue;
+                if (pRoot != null && t.IsChildOf(pRoot)) continue;
+                hit = h;
+                return true;
+            }
+            return false;
         }
 
         // --- Valuables ---
