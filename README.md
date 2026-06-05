@@ -76,33 +76,37 @@ touching** — the brain never breaks.
 
 ---
 
-## Building
+## Building — the easy way (Steam, Windows)
 
-You need the .NET SDK and a local R.E.P.O. install.
+**Just double-click `build.bat`.** It does everything:
 
-1. **Point the build at your game.** Copy the template and edit the path:
-   ```
-   cp Directory.Build.user.props.template Directory.Build.user.props
-   ```
-   Set `REPOGameDir` to your install (the folder containing `REPO.exe`).
+1. finds your Steam R.E.P.O. install automatically,
+2. installs the .NET SDK for you if it's missing (one-time),
+3. builds the mod, and
+4. copies `REPOBot.dll` into `BepInEx\plugins\REPOBot\`.
 
-2. **Build:**
-   ```
-   dotnet build -c Release
-   ```
-   Output: `src/REPOBot/bin/Release/netstandard2.1/REPOBot.dll`.
+Then launch the game and press **F8**. That's it.
 
-   To auto-copy into BepInEx on build, set an env var first:
-   ```
-   set BEPINEX_PLUGINS=...\REPO\BepInEx\plugins   (Windows)
-   ```
+> **One prerequisite:** BepInEx must already be in your game folder. If you don't
+> have it, install **BepInExPack** first — either from
+> [Thunderstore](https://thunderstore.io/c/repo/p/BepInEx/BepInExPack/) or via a
+> mod manager like **r2modman / Thunderstore Mod Manager**. The script will tell
+> you if it's missing and leave the built DLL ready to copy.
 
-3. **Install:** drop `REPOBot.dll` into `...\REPO\BepInEx\plugins\REPOBot\`
-   (BepInExPack must already be installed).
+If auto-detection can't find the game, the script just asks you to paste the
+folder path (in Steam: right-click R.E.P.O. → *Manage* → *Browse local files*).
 
-> The bot reads game types via **reflection**, so you don't need to reference
-> `Assembly-CSharp.dll` to compile — only the UnityEngine DLLs from your install
-> (handled automatically via `REPOGameDir`).
+### Manual build (advanced / non-Steam)
+
+The bot reads game types via reflection, so you only need the UnityEngine DLLs
+from your install — not `Assembly-CSharp.dll`.
+
+```
+cp Directory.Build.user.props.template Directory.Build.user.props   # set REPOGameDir
+dotnet build -c Release
+```
+Output: `src/REPOBot/bin/Release/netstandard2.1/REPOBot.dll` → drop into
+`...\REPO\BepInEx\plugins\REPOBot\`.
 
 ---
 
