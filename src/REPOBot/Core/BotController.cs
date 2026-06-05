@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using BepInEx.Logging;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -42,6 +43,13 @@ namespace REPOBot.Core
         private int _initialValuableCount;
         private float _recordFlashUntil;
 
+        // Valuables the bot has parked on but can't collect (grab not wired yet)
+        // are skipped for a while so it tours the map instead of fixating on one.
+        private readonly Dictionary<GameObject, float> _skipUntil = new Dictionary<GameObject, float>();
+        private readonly HashSet<GameObject> _skipSet = new HashSet<GameObject>();
+        private GameObject _dwellTarget;   // valuable we're currently parked at
+        private float _dwellStart;         // when we arrived at it
+
         public void Init()
         {
             _scanner = new WorldScanner(Api);
@@ -62,6 +70,9 @@ namespace REPOBot.Core
             Phase = RunPhase.Idle;
             LevelKey = to.name;
             _nav.Clear();
+            _skipUntil.Clear();
+            _skipSet.Clear();
+            _dwellTarget = null;
         }
 
         private void Update()
@@ -161,6 +172,7 @@ namespace REPOBot.Core
                 : _selector.ShouldExtract(world, carried);
 
             Vector3 goal;
+            GameObject valuableTarget = null;
             if (goExtract && world.Extraction != null)
             {
                 Phase = world.PlayerHoldingValuable ? RunPhase.Haul : RunPhase.Extract;
@@ -169,10 +181,10 @@ namespace REPOBot.Core
             }
             else
             {
-                var target = _selector.ChooseValuable(world, threat, Settings.Mode.Value);
+                var target = _selector.ChooseValuable(world, threat, Settings.Mode.Value, BuildSkipSet());
                 if (target == null)
                 {
-                    // Nothing reachable to grab and nothing to extract: hold position.
+                    // Nothing collectable left and nothing to extract: hold position.
                     Phase = world.Extraction != null ? RunPhase.Haul : RunPhase.Idle;
                     if (world.Extraction != null) { TargetLabel = "Extraction"; goal = world.Extraction.Pos; }
                     else { StopDriving(); return; }
@@ -182,31 +194,88 @@ namespace REPOBot.Core
                     Phase = RunPhase.Collect;
                     TargetLabel = target.Value > 0 ? $"${target.Value:0} item" : "valuable";
                     goal = target.Pos;
+                    valuableTarget = target.GameObject;
                 }
             }
 
-            DriveTowardGoal(world, goal, threat);
+            DriveTowardGoal(world, goal, threat, valuableTarget);
         }
 
-        private void DriveTowardGoal(WorldSnapshot world, Vector3 goal, ThreatModel.Assessment threat)
+        private void DriveTowardGoal(WorldSnapshot world, Vector3 goal, ThreatModel.Assessment threat, GameObject valuableTarget)
         {
             _nav.SetGoal(world.PlayerPos, goal);
 
+            // Arrived: stop pushing so we don't vibrate on top of the goal.
+            if (_nav.Arrived(world.PlayerPos))
+            {
+                StopDriving();
+                HandleArrival(valuableTarget);
+                return;
+            }
+
+            // Not at the goal but making no progress -> replan.
             if (_nav.UpdateStuck(world.PlayerPos, Time.fixedDeltaTime))
             {
                 _nav.SetGoal(world.PlayerPos, goal, force: true);
+                // If we keep failing to reach a valuable, skip it and move on.
+                if (valuableTarget != null)
+                    Skip(valuableTarget, "unreachable");
                 if (Settings.VerboseLogging.Value) Log.LogInfo("Stuck - replanning path.");
             }
+
+            // Left the dwell target's vicinity: clear the dwell timer.
+            if (_dwellTarget != null && _dwellTarget != valuableTarget)
+                _dwellTarget = null;
 
             Vector3 seek = _nav.SteerDirection(world.PlayerPos);
             Vector3 move = _steering.Compute(seek, threat, fleeing: false);
 
             bool sprint = Settings.AllowSprint.Value && ShouldSprint(threat);
             DriveTowardDirection(world, move, sprint);
+        }
 
-            // Interact when close to a valuable we want to grab.
-            bool nearValuable = Phase == RunPhase.Collect && _nav.Arrived(world.PlayerPos);
-            _input.SetInteract(LocalPlayerComponent(), nearValuable);
+        /// <summary>
+        /// We reached a goal. For a valuable, grabbing isn't wired yet, so after a
+        /// short dwell we give up on it (temporarily) and let the bot move to the
+        /// next one - this is what stops the "stuck and shaking on one item" bug.
+        /// </summary>
+        private void HandleArrival(GameObject valuableTarget)
+        {
+            if (valuableTarget == null)
+                return; // arrived at extraction / idle point: just hold still.
+
+            // TODO(grab): once PhysGrabber grab is wired, attempt the grab here
+            // instead of skipping. For now, dwell briefly then skip so we roam.
+            if (_dwellTarget != valuableTarget)
+            {
+                _dwellTarget = valuableTarget;
+                _dwellStart = Time.time;
+                return;
+            }
+
+            if (Time.time - _dwellStart >= Settings.GrabReachSeconds.Value)
+            {
+                Skip(valuableTarget, "can't collect (grab not wired)");
+                _dwellTarget = null;
+            }
+        }
+
+        private void Skip(GameObject go, string why)
+        {
+            if (go == null) return;
+            _skipUntil[go] = Time.time + Settings.UnreachableSkipSeconds.Value;
+            if (Settings.VerboseLogging.Value) Log.LogInfo($"Skipping valuable ({why}).");
+        }
+
+        /// <summary>Current set of valuables to ignore, with expired entries purged.</summary>
+        private HashSet<GameObject> BuildSkipSet()
+        {
+            _skipSet.Clear();
+            float now = Time.time;
+            foreach (var kv in _skipUntil)
+                if (kv.Value > now && kv.Key != null)
+                    _skipSet.Add(kv.Key);
+            return _skipSet;
         }
 
         private void DriveTowardDirection(WorldSnapshot world, Vector3 worldDir, bool allowSprint)

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using REPOBot.Config;
 using REPOBot.Core;
 using UnityEngine;
@@ -16,7 +17,8 @@ namespace REPOBot.Brain
         public TargetSelector(Settings s) => _s = s;
 
         /// <summary>Picks the best valuable to go for, or null if none qualifies.</summary>
-        public ValuableView ChooseValuable(WorldSnapshot world, ThreatModel.Assessment threat, BotMode mode)
+        public ValuableView ChooseValuable(WorldSnapshot world, ThreatModel.Assessment threat, BotMode mode,
+            HashSet<GameObject> skip = null)
         {
             ValuableView best = null;
             float bestScore = float.NegativeInfinity;
@@ -27,6 +29,8 @@ namespace REPOBot.Brain
             foreach (var v in world.Valuables)
             {
                 if (v.Value < minValue)
+                    continue;
+                if (skip != null && v.GameObject != null && skip.Contains(v.GameObject))
                     continue;
 
                 // Base: prefer close items. Speedrun cares about distance most;

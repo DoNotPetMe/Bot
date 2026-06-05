@@ -42,6 +42,8 @@ namespace REPOBot.Config
         public readonly ConfigEntry<bool> CollectAll;           // try to grab every valuable...
         public readonly ConfigEntry<float> MinValueToDetour;    // ...or only those worth >= this
         public readonly ConfigEntry<float> ExtractWhenCarrying;  // haul once carrying this many $
+        public readonly ConfigEntry<float> GrabReachSeconds;     // dwell at an item before giving up
+        public readonly ConfigEntry<float> UnreachableSkipSeconds; // how long to ignore a skipped item
 
         // --- Timing / records ---
         public readonly ConfigEntry<bool> ShowTimer;
@@ -102,6 +104,10 @@ namespace REPOBot.Config
                 "When CollectAll is false, only detour for valuables worth at least this much.");
             ExtractWhenCarrying = cfg.Bind("04 Objectives", "ExtractWhenCarrying", 0f,
                 "Head to extraction once carrying at least this much value (0 = only when nothing left to grab).");
+            GrabReachSeconds = cfg.Bind("04 Objectives", "GrabReachSeconds", 1.5f,
+                "How long to pause at a valuable before giving up on it (grabbing isn't wired yet, so it then moves on).");
+            UnreachableSkipSeconds = cfg.Bind("04 Objectives", "UnreachableSkipSeconds", 25f,
+                "How long to ignore a valuable the bot couldn't collect/reach before trying it again.");
 
             ShowTimer = cfg.Bind("05 Timing", "ShowTimer", true,
                 "Show the run timer on the HUD.");
