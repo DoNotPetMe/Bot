@@ -1,0 +1,10 @@
+<Project>
+  <!--
+    Copy this file to "Directory.Build.user.props" (same folder) and set the path
+    to YOUR R.E.P.O. installation. That copy is git-ignored so your local path
+    never gets committed.
+  -->
+  <PropertyGroup>
+    <REPOGameDir>C:\Program Files (x86)\Steam\steamapps\common\REPO</REPOGameDir>
+  </PropertyGroup>
+</Project>

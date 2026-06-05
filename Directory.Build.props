@@ -1,0 +1,27 @@
+<Project>
+
+  <!--
+    Point this at YOUR local R.E.P.O. install so the project can reference the
+    game's UnityEngine DLLs at build time. The bot accesses *game-specific*
+    types (PlayerAvatar, EnemyDirector, ...) via reflection, so you do NOT need
+    to reference Assembly-CSharp.dll to compile - but you DO need the UnityEngine
+    modules, which live alongside the game.
+
+    Two ways to set REPOGameDir (pick one):
+      1. Copy Directory.Build.user.props.template -> Directory.Build.user.props
+         and edit the path there (recommended; it is git-ignored).
+      2. Pass it on the command line:
+         dotnet build -c Release -p:REPOGameDir="C:\Program Files (x86)\Steam\steamapps\common\REPO"
+
+    Typical default Steam location is filled in below as a fallback.
+  -->
+  <PropertyGroup>
+    <REPOGameDir Condition="'$(REPOGameDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\REPO</REPOGameDir>
+    <REPOManagedDir>$(REPOGameDir)\REPO_Data\Managed</REPOManagedDir>
+  </PropertyGroup>
+
+  <!-- Optional per-developer override file (git-ignored) -->
+  <Import Project="$(MSBuildThisFileDirectory)Directory.Build.user.props"
+          Condition="Exists('$(MSBuildThisFileDirectory)Directory.Build.user.props')" />
+
+</Project>

@@ -1,0 +1,18 @@
+# Build output
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Local game-path overrides (each modder points this at their own R.E.P.O. install)
+Directory.Build.user.props
+*.local.props
+
+# Packaging
+dist/
+*.zip
+
+# IDE
+.idea/
+.vscode/

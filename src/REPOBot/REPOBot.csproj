@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>REPOBot</AssemblyName>
+    <Product>REPOBot</Product>
+    <Version>0.1.0</Version>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <!-- R.E.P.O. is a Mono Unity game; BepInEx 5 plugins are netstandard2.1. -->
+    <RootNamespace>REPOBot</RootNamespace>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+  </PropertyGroup>
+
+  <!-- BepInEx + HarmonyX come from NuGet (restored on your machine). -->
+  <ItemGroup>
+    <PackageReference Include="BepInEx.Core" Version="5.*" />
+    <PackageReference Include="BepInEx.PluginInfoProps" Version="2.*" />
+  </ItemGroup>
+
+  <!--
+    UnityEngine is referenced from YOUR R.E.P.O. install so the version matches
+    exactly (set REPOGameDir in Directory.Build.user.props). Only the modules the
+    bot actually uses are referenced. Private=false means these DLLs are NOT
+    copied into the build output (BepInEx loads the game's own copies at runtime).
+  -->
+  <ItemGroup>
+    <Reference Include="UnityEngine">                  <HintPath>$(REPOManagedDir)\UnityEngine.dll</HintPath>                  <Private>false</Private> </Reference>
+    <Reference Include="UnityEngine.CoreModule">       <HintPath>$(REPOManagedDir)\UnityEngine.CoreModule.dll</HintPath>       <Private>false</Private> </Reference>
+    <Reference Include="UnityEngine.IMGUIModule">      <HintPath>$(REPOManagedDir)\UnityEngine.IMGUIModule.dll</HintPath>      <Private>false</Private> </Reference>
+    <Reference Include="UnityEngine.AIModule">         <HintPath>$(REPOManagedDir)\UnityEngine.AIModule.dll</HintPath>         <Private>false</Private> </Reference>
+    <Reference Include="UnityEngine.PhysicsModule">    <HintPath>$(REPOManagedDir)\UnityEngine.PhysicsModule.dll</HintPath>    <Private>false</Private> </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule"><HintPath>$(REPOManagedDir)\UnityEngine.InputLegacyModule.dll</HintPath><Private>false</Private> </Reference>
+  </ItemGroup>
+
+  <!--
+    OPTIONAL: reference the game assembly directly. The bot does NOT need this to
+    compile (it reflects into game types), but if you later want compile-time
+    safety you can uncomment this and convert the Game/ adapter to direct calls.
+
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(REPOManagedDir)\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+  -->
+
+  <!-- After a successful build, drop the DLL straight into BepInEx if BEPINEX_PLUGINS is set. -->
+  <Target Name="CopyToPlugins" AfterTargets="Build" Condition="'$(BEPINEX_PLUGINS)' != ''">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BEPINEX_PLUGINS)\REPOBot" />
+  </Target>
+
+</Project>

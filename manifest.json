@@ -1,0 +1,9 @@
+{
+  "name": "REPOBot",
+  "version_number": "0.1.0",
+  "website_url": "https://github.com/donotpetme/bot",
+  "description": "Automation bot that plays R.E.P.O. for you: avoids monsters, collects valuables, extracts. Solo / private-lobby use. Speedrun + safe-collect modes, run timer, beat-your-best tracking.",
+  "dependencies": [
+    "BepInEx-BepInExPack-5.4.2100"
+  ]
+}

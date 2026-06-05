@@ -1,0 +1,114 @@
+using BepInEx.Configuration;
+using REPOBot.Core;
+using UnityEngine;
+
+namespace REPOBot.Config
+{
+    /// <summary>
+    /// All user-tunable settings, bound to BepInEx config so they can be edited
+    /// in the .cfg file or live via a config-manager mod. Every value the brain
+    /// reads at runtime comes from here, so behaviour is fully configurable
+    /// without recompiling.
+    /// </summary>
+    public sealed class Settings
+    {
+        // --- Master ---
+        public readonly ConfigEntry<bool> MasterEnabled;
+        public readonly ConfigEntry<BotMode> Mode;
+
+        // --- Hotkeys ---
+        public readonly ConfigEntry<KeyCode> KeyToggle;     // enable/disable the bot
+        public readonly ConfigEntry<KeyCode> KeyCycleMode;  // SafeCollect <-> Speedrun
+        public readonly ConfigEntry<KeyCode> KeyPanic;      // instant off + hands back to player
+        public readonly ConfigEntry<KeyCode> KeyResetBest;  // clear best time for this level
+
+        // --- Movement / pace ---
+        public readonly ConfigEntry<float> MoveIntensity;       // 0..1, how hard to push the stick
+        public readonly ConfigEntry<bool> AllowSprint;          // permit sprinting when safe
+        public readonly ConfigEntry<float> ArriveRadius;        // how close counts as "reached"
+        public readonly ConfigEntry<float> StuckSeconds;        // replan if no progress this long
+        public readonly ConfigEntry<float> RepathInterval;      // seconds between path recomputes
+
+        // --- Threat / monster avoidance ---
+        public readonly ConfigEntry<float> DangerRadius;        // start steering away inside this
+        public readonly ConfigEntry<float> FleeRadius;          // drop everything and flee inside this
+        public readonly ConfigEntry<float> AvoidWeight;         // strength of monster repulsion
+        public readonly ConfigEntry<float> AlertedMultiplier;   // extra caution for hunting monsters
+
+        // --- Collection / extraction policy ---
+        public readonly ConfigEntry<bool> CollectAll;           // try to grab every valuable...
+        public readonly ConfigEntry<float> MinValueToDetour;    // ...or only those worth >= this
+        public readonly ConfigEntry<float> ExtractWhenCarrying;  // haul once carrying this many $
+
+        // --- Timing / records ---
+        public readonly ConfigEntry<bool> ShowTimer;
+        public readonly ConfigEntry<bool> TrackBestTimes;
+        public readonly ConfigEntry<bool> BeatBestMode;         // push harder when behind PB pace
+        public readonly ConfigEntry<float> BeatBestAggression;   // how much harder (0..1)
+
+        // --- HUD / diagnostics ---
+        public readonly ConfigEntry<bool> ShowHud;
+        public readonly ConfigEntry<bool> VerboseLogging;
+        public readonly ConfigEntry<bool> DiagnosticsOnLoad;    // log resolved game symbols on start
+
+        public Settings(ConfigFile cfg)
+        {
+            MasterEnabled = cfg.Bind("00 General", "Enabled", false,
+                "Master switch. When false the bot never takes control. Toggle in-game with the hotkey.");
+            Mode = cfg.Bind("00 General", "Mode", BotMode.SafeCollect,
+                "Active behaviour profile. SafeCollect = careful/professional. Speedrun = fastest possible. Off = observe only.");
+
+            KeyToggle = cfg.Bind("01 Hotkeys", "Toggle", KeyCode.F8,
+                "Enable/disable the bot taking control.");
+            KeyCycleMode = cfg.Bind("01 Hotkeys", "CycleMode", KeyCode.F9,
+                "Cycle between SafeCollect and Speedrun.");
+            KeyPanic = cfg.Bind("01 Hotkeys", "Panic", KeyCode.F10,
+                "Immediately disable the bot and return control to you.");
+            KeyResetBest = cfg.Bind("01 Hotkeys", "ResetBest", KeyCode.F11,
+                "Clear the saved best time for the current level.");
+
+            MoveIntensity = cfg.Bind("02 Movement", "MoveIntensity", 1f,
+                new ConfigDescription("How hard to push movement (0..1).", new AcceptableValueRange<float>(0f, 1f)));
+            AllowSprint = cfg.Bind("02 Movement", "AllowSprint", true,
+                "Let the bot sprint when it judges the path safe.");
+            ArriveRadius = cfg.Bind("02 Movement", "ArriveRadius", 1.4f,
+                "Distance (m) at which a target counts as reached.");
+            StuckSeconds = cfg.Bind("02 Movement", "StuckSeconds", 1.5f,
+                "If the bot makes no forward progress for this long, it replans.");
+            RepathInterval = cfg.Bind("02 Movement", "RepathInterval", 0.4f,
+                "Seconds between navmesh path recomputes.");
+
+            DangerRadius = cfg.Bind("03 Threat", "DangerRadius", 9f,
+                "Begin steering away from a monster once it is within this many metres.");
+            FleeRadius = cfg.Bind("03 Threat", "FleeRadius", 4.5f,
+                "Abandon the current goal and flee when a monster is within this many metres.");
+            AvoidWeight = cfg.Bind("03 Threat", "AvoidWeight", 2.2f,
+                "Strength of the steer-away force relative to the steer-toward force.");
+            AlertedMultiplier = cfg.Bind("03 Threat", "AlertedMultiplier", 1.8f,
+                "Extra avoidance applied to monsters that are actively hunting.");
+
+            CollectAll = cfg.Bind("04 Objectives", "CollectAll", true,
+                "Try to collect every valuable on the level before extracting.");
+            MinValueToDetour = cfg.Bind("04 Objectives", "MinValueToDetour", 0f,
+                "When CollectAll is false, only detour for valuables worth at least this much.");
+            ExtractWhenCarrying = cfg.Bind("04 Objectives", "ExtractWhenCarrying", 0f,
+                "Head to extraction once carrying at least this much value (0 = only when nothing left to grab).");
+
+            ShowTimer = cfg.Bind("05 Timing", "ShowTimer", true,
+                "Show the run timer on the HUD.");
+            TrackBestTimes = cfg.Bind("05 Timing", "TrackBestTimes", true,
+                "Persist a best completion time per level and show it on the HUD.");
+            BeatBestMode = cfg.Bind("05 Timing", "BeatBestMode", false,
+                "When ahead of / behind your personal-best pace, push the bot harder to try to beat it.");
+            BeatBestAggression = cfg.Bind("05 Timing", "BeatBestAggression", 0.5f,
+                new ConfigDescription("How much extra risk to accept in BeatBest mode (0..1).", new AcceptableValueRange<float>(0f, 1f)));
+
+            ShowHud = cfg.Bind("06 HUD", "ShowHud", true,
+                "Show the bot status overlay (mode, phase, timer, target).");
+            VerboseLogging = cfg.Bind("06 HUD", "VerboseLogging", false,
+                "Log detailed per-decision diagnostics to the BepInEx console.");
+            DiagnosticsOnLoad = cfg.Bind("06 HUD", "DiagnosticsOnLoad", true,
+                "On startup, log which game types/members the adapter resolved. Use this to verify symbols for your game version.");
+        }
+    }
+}
