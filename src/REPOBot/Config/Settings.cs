@@ -44,6 +44,7 @@ namespace REPOBot.Config
         public readonly ConfigEntry<float> ExtractWhenCarrying;  // haul once carrying this many $
         public readonly ConfigEntry<float> GrabReachSeconds;     // dwell at an item before giving up
         public readonly ConfigEntry<float> UnreachableSkipSeconds; // how long to ignore a skipped item
+        public readonly ConfigEntry<float> DeliveredRadius;      // valuables within this of extraction = delivered
 
         // --- Timing / records ---
         public readonly ConfigEntry<bool> ShowTimer;
@@ -108,6 +109,8 @@ namespace REPOBot.Config
                 "How long to pause at a valuable before giving up on it (grabbing isn't wired yet, so it then moves on).");
             UnreachableSkipSeconds = cfg.Bind("04 Objectives", "UnreachableSkipSeconds", 25f,
                 "How long to ignore a valuable the bot couldn't collect/reach before trying it again.");
+            DeliveredRadius = cfg.Bind("04 Objectives", "DeliveredRadius", 3.5f,
+                "Valuables within this distance of the extraction point are treated as already delivered.");
 
             ShowTimer = cfg.Bind("05 Timing", "ShowTimer", true,
                 "Show the run timer on the HUD.");

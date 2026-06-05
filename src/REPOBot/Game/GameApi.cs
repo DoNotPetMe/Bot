@@ -40,9 +40,14 @@ namespace REPOBot.Game
         private readonly MemberInfoRef _playerGrabber;      // PlayerAvatar -> PhysGrabber
         private readonly MemberInfoRef _grabberHeldObject;  // PhysGrabber.grabbedObject
         private readonly MemberInfoRef _valuableValue;      // ValuableObject.dollarValue*
-        private readonly MemberInfoRef _enemyOnHunt;        // Enemy hunting/alerted flag
-        private readonly MemberInfoRef _extractionState;    // ExtractionPoint state/active flag
-        private readonly MemberInfoRef _extractionComplete; // ExtractionPoint completed flag
+        private readonly MemberInfoRef _enemyOnHunt;        // EnemyParent.playerVeryClose/playerClose
+        private readonly MemberInfoRef _extractionState;    // ExtractionPoint.currentState (State enum)
+
+        // Grabbing
+        private readonly MethodInfo _forceGrab;             // PhysGrabber.ForceGrabPhysObject(PhysGrabObject)
+        private readonly MethodInfo _overrideGrab;          // PhysGrabber.OverrideGrab(PhysGrabObject, float, bool)
+        private readonly MethodInfo _releaseObject;         // PhysGrabber.ReleaseObject(int, float)
+        private readonly MemberInfoRef _valuablePhysObject; // ValuableObject.physGrabObject (PhysGrabObject)
 
         public bool Usable => PlayerAvatarType != null;
 
@@ -87,16 +92,21 @@ namespace REPOBot.Game
             _valuableValue = MemberInfoRef.Resolve(Report, "ValuableObject.dollarValue",
                 ValuableType, "dollarValueCurrent", "dollarValue", "dollarValueOriginal", "value");
 
-            _enemyOnHunt = MemberInfoRef.Resolve(Report, "Enemy.onHunt/alerted",
-                EnemyType, "onHunt", "isHunting", "alerted", "hunting", "investigate",
-                "onInvestigate", "stateInvestigate", "enemyActive", "Enabled");
+            _enemyOnHunt = MemberInfoRef.Resolve(Report, "EnemyParent.playerVeryClose",
+                EnemyType, "playerVeryClose", "playerClose", "onHunt", "isHunting", "alerted");
 
-            _extractionState = MemberInfoRef.Resolve(Report, "ExtractionPoint.active/state",
-                ExtractionType, "isActive", "active", "currentState", "state", "extractionActive");
+            _extractionState = MemberInfoRef.Resolve(Report, "ExtractionPoint.currentState",
+                ExtractionType, "currentState", "state", "stateSetTo");
 
-            _extractionComplete = MemberInfoRef.Resolve(Report, "ExtractionPoint.complete",
-                ExtractionType, "isComplete", "complete", "extractionComplete", "haulComplete",
-                "extractionSuccess", "success", "completed");
+            _valuablePhysObject = MemberInfoRef.Resolve(Report, "ValuableObject.physGrabObject",
+                ValuableType, "physGrabObject");
+
+            _forceGrab = Report.Track("PhysGrabber.ForceGrabPhysObject",
+                Reflect.Method(PhysGrabberType, "ForceGrabPhysObject"));
+            _overrideGrab = Report.Track("PhysGrabber.OverrideGrab",
+                Reflect.Method(PhysGrabberType, "OverrideGrab"));
+            _releaseObject = Report.Track("PhysGrabber.ReleaseObject",
+                Reflect.Method(PhysGrabberType, "ReleaseObject"));
         }
 
         public void LogDiagnostics()
@@ -183,21 +193,66 @@ namespace REPOBot.Game
             return _enemyOnHunt.TryGet(enemy, out var v) && Reflect.TryGetBool(v, out var b) && b;
         }
 
+        // --- Grabbing ---
+
+        /// <summary>The local player's PhysGrabber component, or null.</summary>
+        public Component GetPhysGrabber(Component player)
+        {
+            if (player == null || _playerGrabber == null) return null;
+            return _playerGrabber.TryGet(player, out var g) ? g as Component : null;
+        }
+
+        /// <summary>The PhysGrabObject of a ValuableObject (what you pass to a grab).</summary>
+        public object GetValuablePhysObject(Component valuable)
+        {
+            if (valuable == null || _valuablePhysObject == null) return null;
+            return _valuablePhysObject.TryGet(valuable, out var po) ? po : null;
+        }
+
+        /// <summary>Force-grab a specific PhysGrabObject. Returns false if no API.</summary>
+        public bool TryGrab(Component grabber, object physObject)
+        {
+            if (grabber == null || !(physObject is UnityEngine.Object uo) || uo == null) return false;
+            try
+            {
+                if (_forceGrab != null) { _forceGrab.Invoke(grabber, new[] { physObject }); return true; }
+                if (_overrideGrab != null) { _overrideGrab.Invoke(grabber, new object[] { physObject, 1f, false }); return true; }
+            }
+            catch (Exception ex) { _log.LogWarning("TryGrab failed: " + ex.Message); }
+            return false;
+        }
+
+        /// <summary>Release whatever the grabber is holding (best-effort).</summary>
+        public void Release(Component grabber)
+        {
+            if (grabber == null || _releaseObject == null) return;
+            try { _releaseObject.Invoke(grabber, new object[] { 0, 0f }); }
+            catch (Exception ex) { _log.LogWarning("Release failed: " + ex.Message); }
+        }
+
         // --- Extraction ---
 
-        public bool ExtractionActive(Component extraction)
+        /// <summary>Reads ExtractionPoint.currentState and returns its enum name (or "").</summary>
+        private string ExtractionStateName(Component extraction)
         {
-            if (extraction == null || _extractionState == null) return true; // assume usable if unknown
-            if (!_extractionState.TryGet(extraction, out var v)) return true;
-            if (v is bool b) return b;
-            // If it is an enum/int state, treat non-zero "Idle/None" heuristically as active.
-            return true;
+            if (extraction == null || _extractionState == null) return "";
+            return _extractionState.TryGet(extraction, out var v) && v != null ? v.ToString() : "";
         }
 
         public bool ExtractionComplete(Component extraction)
         {
-            if (extraction == null || _extractionComplete == null) return false;
-            return _extractionComplete.TryGet(extraction, out var v) && Reflect.TryGetBool(v, out var b) && b;
+            var s = ExtractionStateName(extraction);
+            return s.IndexOf("Complete", StringComparison.OrdinalIgnoreCase) >= 0
+                || s.IndexOf("Success", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>Active = not idle and not complete. Unknown state -> treat as usable.</summary>
+        public bool ExtractionActive(Component extraction)
+        {
+            var s = ExtractionStateName(extraction);
+            if (s.Length == 0) return true;
+            if (ExtractionComplete(extraction)) return false;
+            return s.IndexOf("Idle", StringComparison.OrdinalIgnoreCase) < 0;
         }
     }
 

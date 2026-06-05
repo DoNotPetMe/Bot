@@ -18,7 +18,7 @@ namespace REPOBot.Brain
 
         /// <summary>Picks the best valuable to go for, or null if none qualifies.</summary>
         public ValuableView ChooseValuable(WorldSnapshot world, ThreatModel.Assessment threat, BotMode mode,
-            HashSet<GameObject> skip = null)
+            HashSet<GameObject> skip = null, Vector3? extractionPos = null, float deliveredRadius = 0f)
         {
             ValuableView best = null;
             float bestScore = float.NegativeInfinity;
@@ -31,6 +31,10 @@ namespace REPOBot.Brain
                 if (v.Value < minValue)
                     continue;
                 if (skip != null && v.GameObject != null && skip.Contains(v.GameObject))
+                    continue;
+                // Already delivered (sitting at the extraction point): ignore it.
+                if (extractionPos.HasValue && deliveredRadius > 0f &&
+                    Vector3.Distance(v.Pos, extractionPos.Value) <= deliveredRadius)
                     continue;
 
                 // Base: prefer close items. Speedrun cares about distance most;

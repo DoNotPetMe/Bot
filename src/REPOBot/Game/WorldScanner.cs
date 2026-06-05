@@ -52,6 +52,7 @@ namespace REPOBot.Game
                 _snap.Valuables.Add(new ValuableView
                 {
                     GameObject = v.gameObject,
+                    Component = v,
                     Pos = pos,
                     Distance = Vector3.Distance(pos, _snap.PlayerPos),
                     Value = _api.ValuableValue(v)

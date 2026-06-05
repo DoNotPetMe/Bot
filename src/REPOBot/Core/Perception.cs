@@ -52,6 +52,8 @@ namespace REPOBot.Core
     public sealed class ValuableView
     {
         public GameObject GameObject;
+        /// <summary>The ValuableObject component (used to read its PhysGrabObject for grabbing).</summary>
+        public Component Component;
         public Vector3 Pos;
         public float Distance;
         /// <summary>Estimated dollar value; 0 if unknown. Used for prioritisation.</summary>

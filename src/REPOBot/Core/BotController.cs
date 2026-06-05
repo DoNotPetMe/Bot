@@ -49,6 +49,7 @@ namespace REPOBot.Core
         private readonly HashSet<GameObject> _skipSet = new HashSet<GameObject>();
         private GameObject _dwellTarget;   // valuable we're currently parked at
         private float _dwellStart;         // when we arrived at it
+        private float _lastGrabAttempt;    // throttle for grab calls
 
         public void Init()
         {
@@ -165,27 +166,37 @@ namespace REPOBot.Core
                 return;
             }
 
-            // 3) Extract, haul, or collect.
-            float carried = 0f; // exact carried value isn't reliably readable; threshold logic is conservative.
-            bool goExtract = world.PlayerHoldingValuable
-                ? _selector.ShouldExtract(world, carried) || world.ValuablesRemaining == 0
-                : _selector.ShouldExtract(world, carried);
-
+            // 3) Holding something -> haul it to extraction and drop it there.
+            //    Otherwise pick the next valuable to grab.
             Vector3 goal;
-            GameObject valuableTarget = null;
-            if (goExtract && world.Extraction != null)
+            ValuableView valuableTarget = null;
+
+            bool holding = world.PlayerHoldingValuable;
+            Vector3? extractionPos = world.Extraction?.Pos;
+
+            if (holding && world.Extraction == null)
             {
-                Phase = world.PlayerHoldingValuable ? RunPhase.Haul : RunPhase.Extract;
-                TargetLabel = "Extraction";
+                // Carrying something but nowhere active to drop it: hold position.
+                Phase = RunPhase.Haul;
+                TargetLabel = "Holding (no active extraction)";
+                StopDriving();
+                return;
+            }
+
+            if (holding)
+            {
+                Phase = RunPhase.Haul;
+                TargetLabel = "Haul -> Extraction";
                 goal = world.Extraction.Pos;
             }
             else
             {
-                var target = _selector.ChooseValuable(world, threat, Settings.Mode.Value, BuildSkipSet());
+                var target = _selector.ChooseValuable(world, threat, Settings.Mode.Value,
+                    BuildSkipSet(), extractionPos, Settings.DeliveredRadius.Value);
                 if (target == null)
                 {
-                    // Nothing collectable left and nothing to extract: hold position.
-                    Phase = world.Extraction != null ? RunPhase.Haul : RunPhase.Idle;
+                    // Nothing left to collect. Sit at extraction if one exists.
+                    Phase = world.Extraction != null ? RunPhase.Extract : RunPhase.Idle;
                     if (world.Extraction != null) { TargetLabel = "Extraction"; goal = world.Extraction.Pos; }
                     else { StopDriving(); return; }
                 }
@@ -194,14 +205,14 @@ namespace REPOBot.Core
                     Phase = RunPhase.Collect;
                     TargetLabel = target.Value > 0 ? $"${target.Value:0} item" : "valuable";
                     goal = target.Pos;
-                    valuableTarget = target.GameObject;
+                    valuableTarget = target;
                 }
             }
 
             DriveTowardGoal(world, goal, threat, valuableTarget);
         }
 
-        private void DriveTowardGoal(WorldSnapshot world, Vector3 goal, ThreatModel.Assessment threat, GameObject valuableTarget)
+        private void DriveTowardGoal(WorldSnapshot world, Vector3 goal, ThreatModel.Assessment threat, ValuableView valuableTarget)
         {
             _nav.SetGoal(world.PlayerPos, goal);
 
@@ -219,12 +230,12 @@ namespace REPOBot.Core
                 _nav.SetGoal(world.PlayerPos, goal, force: true);
                 // If we keep failing to reach a valuable, skip it and move on.
                 if (valuableTarget != null)
-                    Skip(valuableTarget, "unreachable");
+                    Skip(valuableTarget.GameObject, "unreachable");
                 if (Settings.VerboseLogging.Value) Log.LogInfo("Stuck - replanning path.");
             }
 
             // Left the dwell target's vicinity: clear the dwell timer.
-            if (_dwellTarget != null && _dwellTarget != valuableTarget)
+            if (_dwellTarget != null && (valuableTarget == null || _dwellTarget != valuableTarget.GameObject))
                 _dwellTarget = null;
 
             Vector3 seek = _nav.SteerDirection(world.PlayerPos);
@@ -235,27 +246,54 @@ namespace REPOBot.Core
         }
 
         /// <summary>
-        /// We reached a goal. For a valuable, grabbing isn't wired yet, so after a
-        /// short dwell we give up on it (temporarily) and let the bot move to the
-        /// next one - this is what stops the "stuck and shaking on one item" bug.
+        /// Reached a goal. If it's a valuable, try to grab it; if we're hauling and
+        /// reached extraction, drop what we're carrying. Failed grabs are skipped
+        /// briefly so the bot moves on instead of getting stuck.
         /// </summary>
-        private void HandleArrival(GameObject valuableTarget)
+        private void HandleArrival(ValuableView valuableTarget)
         {
-            if (valuableTarget == null)
-                return; // arrived at extraction / idle point: just hold still.
+            var player = LocalPlayerComponent();
 
-            // TODO(grab): once PhysGrabber grab is wired, attempt the grab here
-            // instead of skipping. For now, dwell briefly then skip so we roam.
-            if (_dwellTarget != valuableTarget)
+            // Arrived at extraction while carrying -> release the item there.
+            if (valuableTarget == null)
             {
-                _dwellTarget = valuableTarget;
-                _dwellStart = Time.time;
+                if ((Phase == RunPhase.Haul || Phase == RunPhase.Extract) && Api.HoldingValuable(player))
+                {
+                    var g = Api.GetPhysGrabber(player);
+                    if (g != null) { Api.Release(g); Log.LogInfo("Dropped a valuable at extraction."); }
+                }
                 return;
             }
 
+            // Arrived at a valuable -> attempt to grab it.
+            if (Api.HoldingValuable(player))
+                return; // already carrying something; will haul next tick.
+
+            if (_dwellTarget != valuableTarget.GameObject)
+            {
+                _dwellTarget = valuableTarget.GameObject;
+                _dwellStart = Time.time;
+            }
+
+            var grabber = Api.GetPhysGrabber(player);
+            var physObj = Api.GetValuablePhysObject(valuableTarget.Component);
+
+            // Attempt the grab, throttled so we don't re-fire every physics tick.
+            if (grabber != null && physObj != null && Time.time - _lastGrabAttempt >= 0.25f)
+            {
+                _lastGrabAttempt = Time.time;
+                if (Api.TryGrab(grabber, physObj) && Api.HoldingValuable(player))
+                {
+                    Log.LogInfo($"Grabbed {(valuableTarget.Value > 0 ? "$" + valuableTarget.Value.ToString("0") : "a")} valuable.");
+                    _dwellTarget = null;
+                    return;
+                }
+            }
+
+            // Couldn't grab within the dwell window -> skip it for a while.
             if (Time.time - _dwellStart >= Settings.GrabReachSeconds.Value)
             {
-                Skip(valuableTarget, "can't collect (grab not wired)");
+                Skip(valuableTarget.GameObject, grabber == null || physObj == null ? "no grab API" : "grab didn't take");
                 _dwellTarget = null;
             }
         }
