@@ -22,9 +22,15 @@ namespace REPOBot.Game
         /// <summary>World-space target velocity (XZ used; Y preserved for gravity).</summary>
         public static Vector3 DesiredVelocity;
 
+        // Tunables pushed in from settings.
+        public static float Acceleration = 14f;
+        public static bool AutoStep = true;
+        public static float StepUpSpeed = 3.5f;
+
         private static ManualLogSource _log;
         private static Rigidbody _rb;
         private static bool _installed;
+        private static float _blockedTimer;
 
         public static bool Installed => _installed;
         public static bool HasBody => _rb != null;
@@ -73,8 +79,29 @@ namespace REPOBot.Game
             if (_rb == null) _rb = FindBody(__instance);
             if (_rb == null || _rb.isKinematic) return;
 
+            float dt = Time.fixedDeltaTime;
             Vector3 v = _rb.velocity;
-            _rb.velocity = new Vector3(DesiredVelocity.x, v.y, DesiredVelocity.z);
+
+            // Smoothly accelerate the horizontal velocity toward the target instead
+            // of slamming it - this is what stops items/the player getting bashed.
+            Vector3 curH = new Vector3(v.x, 0f, v.z);
+            Vector3 tgtH = new Vector3(DesiredVelocity.x, 0f, DesiredVelocity.z);
+            Vector3 newH = Vector3.MoveTowards(curH, tgtH, Acceleration * dt);
+
+            // Auto-step: if we WANT to move but our actual velocity is stalled
+            // (blocked by a step / small prop), give a short upward hop to climb it.
+            float y = v.y;
+            float want = tgtH.magnitude;
+            if (want > 0.5f && curH.magnitude < want * 0.35f) _blockedTimer += dt;
+            else _blockedTimer = 0f;
+
+            if (AutoStep && _blockedTimer > 0.2f && y < StepUpSpeed)
+            {
+                y = StepUpSpeed;
+                _blockedTimer = 0f;
+            }
+
+            _rb.velocity = new Vector3(newH.x, y, newH.z);
         }
 
         private static Rigidbody FindBody(Component c)
@@ -93,6 +120,10 @@ namespace REPOBot.Game
             Active = true;
         }
 
-        public static void Release() => Active = false;
+        public static void Release()
+        {
+            Active = false;
+            _blockedTimer = 0f;
+        }
     }
 }

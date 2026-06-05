@@ -17,30 +17,31 @@ namespace REPOBot.Game
     /// </summary>
     public sealed class InputDriver
     {
-        private readonly GameApi _api;
         private readonly Settings _s;
         private readonly ManualLogSource _log;
         private Rigidbody _fallbackBody;
 
         public InputDriver(GameApi api, Settings s, ManualLogSource log)
         {
-            _api = api;
             _s = s;
             _log = log;
         }
 
-        /// <summary>Drive toward <paramref name="worldDir"/> (XZ; need not be normalised).</summary>
-        public void Drive(Component player, Vector3 worldDir, float intensity, bool sprint)
+        /// <summary>Drive toward <paramref name="worldDir"/> (XZ) at <paramref name="speed"/> m/s.</summary>
+        public void Drive(Component player, Vector3 worldDir, float speed)
         {
+            // Keep the movement smoothing/auto-step in sync with current settings.
+            MovementPatch.Acceleration = _s.Acceleration.Value;
+            MovementPatch.AutoStep = _s.AutoStep.Value;
+            MovementPatch.StepUpSpeed = _s.StepUpSpeed.Value;
+
             worldDir.y = 0f;
-            if (worldDir.sqrMagnitude < 0.0001f)
+            if (worldDir.sqrMagnitude < 0.0001f || speed <= 0.01f)
             {
                 Stop(player);
                 return;
             }
             worldDir.Normalize();
-
-            float speed = (sprint ? _s.SprintSpeed.Value : _s.WalkSpeed.Value) * Mathf.Clamp01(intensity);
             Vector3 vel = worldDir * speed;
 
             MovementPatch.SetVelocity(vel);

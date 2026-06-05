@@ -51,6 +51,7 @@ namespace REPOBot.Core
         private float _dwellStart;         // when we arrived at it
         private float _lastGrabAttempt;    // throttle for grab calls
         private int _grabAttempts;         // attempts on the current dwell target
+        private int _stuckCount;           // consecutive stuck events on the way to a goal
 
         // Door opening
         private Component _doorToOpen;     // PhysGrabObject of the door we're opening
@@ -85,6 +86,7 @@ namespace REPOBot.Core
             _recentlyOpened.Clear();
             _dwellTarget = null;
             _doorToOpen = null;
+            _stuckCount = 0;
         }
 
         private void Update()
@@ -172,7 +174,7 @@ namespace REPOBot.Core
                     EndOpen();
                 }
                 Vector3 fleeDir = _steering.Compute(Vector3.zero, threat, fleeing: true);
-                DriveTowardDirection(world, fleeDir, allowSprint: true);
+                DriveDir(fleeDir, Settings.SprintSpeed.Value * Settings.MoveIntensity.Value);
                 return;
             }
 
@@ -206,6 +208,7 @@ namespace REPOBot.Core
                 Phase = RunPhase.Haul;
                 TargetLabel = "Holding (no active extraction)";
                 StopDriving();
+                Api.MaintainGrab(LocalPlayerComponent(), Settings.GrabHoldRefresh.Value * 2f, Settings.PullDistance.Value);
                 return;
             }
 
@@ -259,26 +262,54 @@ namespace REPOBot.Core
                 return;
             }
 
-            // Not at the goal but making no progress -> replan, try a jump, and if
-            // it's a valuable we keep failing to reach, skip it.
+            // Not at the goal but making no progress -> replan, jump, sidestep, and
+            // only skip a valuable after several stuck events (give auto-step a go).
             if (_nav.UpdateStuck(world.PlayerPos, Time.fixedDeltaTime))
             {
+                _stuckCount++;
                 _nav.SetGoal(world.PlayerPos, goal, force: true);
                 if (Settings.JumpWhenStuck.Value) Api.TryJump();
-                if (valuableTarget != null)
+
+                if (valuableTarget != null && _stuckCount >= 3)
+                {
                     Skip(valuableTarget.GameObject, "stuck / unreachable");
-                if (Settings.VerboseLogging.Value) Log.LogInfo("Stuck - replanning path.");
+                    _stuckCount = 0;
+                }
+                else
+                {
+                    // Sidestep around the obstacle (alternating sides) this tick.
+                    Vector3 fwd = goal - world.PlayerPos; fwd.y = 0f;
+                    Vector3 side = Vector3.Cross(Vector3.up, fwd.normalized);
+                    if ((_stuckCount & 1) == 0) side = -side;
+                    DriveDir(side, Settings.WalkSpeed.Value * Settings.MoveIntensity.Value);
+                }
+                if (Settings.VerboseLogging.Value) Log.LogInfo($"Stuck ({_stuckCount}) - replan/sidestep.");
+                return;
             }
 
             // Left the dwell target's vicinity: clear the dwell timer.
             if (_dwellTarget != null && (valuableTarget == null || _dwellTarget != valuableTarget.GameObject))
                 _dwellTarget = null;
 
+            bool holding = world.PlayerHoldingValuable;
             Vector3 seek = _nav.SteerDirection(world.PlayerPos);
             Vector3 move = _steering.Compute(seek, threat, fleeing: false);
 
-            bool sprint = Settings.AllowSprint.Value && ShouldSprint(threat);
-            DriveTowardDirection(world, move, sprint);
+            bool sprintOk = !holding && Settings.AllowSprint.Value && ShouldSprint(threat);
+            float speed = TravelSpeed(world, holding, sprintOk);
+
+            // Ease off as we approach the goal so we don't overshoot/bash into it.
+            float dist = Vector3.Distance(world.PlayerPos, goal);
+            if (dist < Settings.SlowRadius.Value)
+                speed = Mathf.Lerp(Settings.MinApproachSpeed.Value, speed,
+                    Mathf.Clamp01(dist / Settings.SlowRadius.Value));
+
+            DriveDir(move, speed);
+            _stuckCount = 0; // making progress
+
+            // Keep a carried item gripped and pulled in close so it doesn't flail.
+            if (holding)
+                Api.MaintainGrab(LocalPlayerComponent(), Settings.GrabHoldRefresh.Value * 2f, Settings.PullDistance.Value);
         }
 
         /// <summary>
@@ -399,11 +430,13 @@ namespace REPOBot.Core
                 return;
             }
 
-            // Holding the door: pull it open by driving away from it.
+            // Holding the door: pull it open by driving slowly away from it, and
+            // keep the door gripped + pulled in so we actually swing it.
             if (_openPullUntil <= 0f) _openPullUntil = Time.time + Settings.OpenPullSeconds.Value;
+            Api.MaintainGrab(player, Settings.GrabHoldRefresh.Value * 2f, Settings.PullDistance.Value);
             Vector3 away = world.PlayerPos - _doorPos; away.y = 0f;
             if (away.sqrMagnitude < 0.01f) away = -world.PlayerForward;
-            DriveTowardDirection(world, away.normalized, allowSprint: false);
+            DriveDir(away.normalized, Settings.CarrySpeed.Value * Settings.MoveIntensity.Value);
 
             if (Time.time >= _openPullUntil)
             {
@@ -453,22 +486,29 @@ namespace REPOBot.Core
             return _skipSet;
         }
 
-        private void DriveTowardDirection(WorldSnapshot world, Vector3 worldDir, bool allowSprint)
+        /// <summary>Drive in a world-space direction at a given speed (m/s).</summary>
+        private void DriveDir(Vector3 worldDir, float speed)
         {
-            float intensity = Settings.MoveIntensity.Value;
+            _input.Drive(LocalPlayerComponent(), worldDir, speed);
+        }
 
-            // "Beat best" mode: when behind PB pace, push intensity/aggression up.
-            if (Settings.BeatBestMode.Value && Timer.Target.HasValue)
+        /// <summary>Context-aware travel speed: slow when carrying, faster when sprinting.</summary>
+        private float TravelSpeed(WorldSnapshot world, bool holding, bool sprintOk)
+        {
+            float s = holding ? Settings.CarrySpeed.Value
+                              : (sprintOk ? Settings.SprintSpeed.Value : Settings.WalkSpeed.Value);
+
+            // "Beat best": push the pace when behind PB - but never while carrying,
+            // so we don't sacrifice a valuable to the clock.
+            if (!holding && Settings.BeatBestMode.Value && Timer.Target.HasValue)
             {
                 float frac = _initialValuableCount > 0
-                    ? 1f - (float)world.ValuablesRemaining / _initialValuableCount
-                    : 0f;
+                    ? 1f - (float)world.ValuablesRemaining / _initialValuableCount : 0f;
                 float? pace = Timer.PaceDelta(frac);
-                if (pace.HasValue && pace.Value < 0f) // behind pace
-                    intensity = Mathf.Clamp01(intensity + Settings.BeatBestAggression.Value);
+                if (pace.HasValue && pace.Value < 0f)
+                    s *= 1f + Settings.BeatBestAggression.Value;
             }
-
-            _input.Drive(LocalPlayerComponent(), worldDir, intensity, allowSprint);
+            return s * Settings.MoveIntensity.Value;
         }
 
         private bool ShouldSprint(ThreatModel.Assessment threat)

@@ -51,6 +51,8 @@ namespace REPOBot.Game
         // Grabbing
         private readonly MethodInfo _forceGrab;             // PhysGrabber.ForceGrabPhysObject(PhysGrabObject)
         private readonly MethodInfo _overrideGrab;          // PhysGrabber.OverrideGrab(PhysGrabObject, float, bool)
+        private readonly MethodInfo _overrideAim;           // PhysGrabber.OverrideAimTransform(Transform, float)
+        private readonly MethodInfo _overrideGrabDistance;  // PhysGrabber.OverrideGrabDistance(float)
         private readonly MethodInfo _releaseObject;         // PhysGrabber.ReleaseObject(int, float)
         private readonly MemberInfoRef _valuablePhysObject; // ValuableObject.physGrabObject (PhysGrabObject)
         private readonly MemberInfoRef _grabbedFlag;        // PhysGrabber.grabbed (bool)
@@ -119,6 +121,10 @@ namespace REPOBot.Game
                 Reflect.Method(PhysGrabberType, "ForceGrabPhysObject"));
             _overrideGrab = Report.Track("PhysGrabber.OverrideGrab",
                 Reflect.Method(PhysGrabberType, "OverrideGrab"));
+            _overrideAim = Report.Track("PhysGrabber.OverrideAimTransform",
+                Reflect.Method(PhysGrabberType, "OverrideAimTransform"));
+            _overrideGrabDistance = Report.Track("PhysGrabber.OverrideGrabDistance",
+                Reflect.Method(PhysGrabberType, "OverrideGrabDistance"));
             _releaseObject = Report.Track("PhysGrabber.ReleaseObject",
                 Reflect.Method(PhysGrabberType, "ReleaseObject"));
 
@@ -318,17 +324,45 @@ namespace REPOBot.Game
             return _valuablePhysObject.TryGet(valuable, out var po) ? po : null;
         }
 
-        /// <summary>Force-grab a specific PhysGrabObject. Returns false if no API.</summary>
-        public bool TryGrab(Component grabber, object physObject)
+        /// <summary>
+        /// Grab a specific PhysGrabObject. Aims the grabber's beam at the object
+        /// first (so it doesn't depend on where the camera points), then asserts an
+        /// override grab for <paramref name="holdTime"/> seconds. Falls back to
+        /// ForceGrabPhysObject. Returns false only if no grab API is available.
+        /// </summary>
+        public bool TryGrab(Component grabber, object physObject, float holdTime = 0.6f)
         {
             if (grabber == null || !(physObject is UnityEngine.Object uo) || uo == null) return false;
             try
             {
+                var t = (physObject as Component)?.transform;
+                if (_overrideAim != null && t != null) _overrideAim.Invoke(grabber, new object[] { t, holdTime });
+
+                if (_overrideGrab != null) { _overrideGrab.Invoke(grabber, new object[] { physObject, holdTime, true }); return true; }
                 if (_forceGrab != null) { _forceGrab.Invoke(grabber, new[] { physObject }); return true; }
-                if (_overrideGrab != null) { _overrideGrab.Invoke(grabber, new object[] { physObject, 1f, false }); return true; }
             }
             catch (Exception ex) { _log.LogWarning("TryGrab failed: " + ex.Message); }
             return false;
+        }
+
+        /// <summary>
+        /// Keep a held object grabbed and pulled in close, so a moving bot doesn't
+        /// drop it or fling it into walls. Call every tick while carrying.
+        /// </summary>
+        public void MaintainGrab(Component player, float holdTime, float pullDistance)
+        {
+            var grabber = GetPhysGrabber(player);
+            if (grabber == null) return;
+            try
+            {
+                object held = null;
+                if (_grabbedPhysObj != null) _grabbedPhysObj.TryGet(grabber, out held);
+                if (held is UnityEngine.Object ho && ho != null && _overrideGrab != null)
+                    _overrideGrab.Invoke(grabber, new object[] { held, holdTime, true });
+                if (_overrideGrabDistance != null && pullDistance > 0f)
+                    _overrideGrabDistance.Invoke(grabber, new object[] { pullDistance });
+            }
+            catch (Exception ex) { _log.LogWarning("MaintainGrab failed: " + ex.Message); }
         }
 
         /// <summary>Release whatever the grabber is holding (best-effort).</summary>

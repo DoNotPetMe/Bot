@@ -24,9 +24,15 @@ namespace REPOBot.Config
         public readonly ConfigEntry<KeyCode> KeyDumpApi;    // dump game API to log (diagnostics)
 
         // --- Movement / pace ---
-        public readonly ConfigEntry<float> MoveIntensity;       // 0..1, how hard to push the stick
+        public readonly ConfigEntry<float> MoveIntensity;       // 0..1, overall speed multiplier
         public readonly ConfigEntry<float> WalkSpeed;           // m/s target velocity when walking
         public readonly ConfigEntry<float> SprintSpeed;         // m/s target velocity when sprinting
+        public readonly ConfigEntry<float> CarrySpeed;          // m/s when carrying a valuable (slow!)
+        public readonly ConfigEntry<float> Acceleration;        // how fast velocity ramps (m/s^2)
+        public readonly ConfigEntry<float> SlowRadius;          // start easing off this far from the goal
+        public readonly ConfigEntry<float> MinApproachSpeed;    // slowest crawl when right next to a goal
+        public readonly ConfigEntry<bool> AutoStep;             // hop over steps/small props when blocked
+        public readonly ConfigEntry<float> StepUpSpeed;         // upward speed of the auto-step hop
         public readonly ConfigEntry<bool> AllowSprint;          // permit sprinting when safe
         public readonly ConfigEntry<float> ArriveRadius;        // how close counts as "reached"
         public readonly ConfigEntry<float> StuckSeconds;        // replan if no progress this long
@@ -52,6 +58,8 @@ namespace REPOBot.Config
         public readonly ConfigEntry<bool> OpenContainers;        // open fridge/cupboard/drawer doors
         public readonly ConfigEntry<float> OpenPullSeconds;      // how long to pull a door open
         public readonly ConfigEntry<float> OpenCooldownSeconds;  // don't retry the same door for this long
+        public readonly ConfigEntry<float> GrabHoldRefresh;      // re-assert the grab every X s while holding
+        public readonly ConfigEntry<float> PullDistance;         // keep held item this close to the player
         public readonly ConfigEntry<bool> JumpWhenStuck;         // try jumping when stuck on something
 
         // --- Timing / records ---
@@ -85,12 +93,24 @@ namespace REPOBot.Config
 
             MoveIntensity = cfg.Bind("02 Movement", "MoveIntensity", 1f,
                 new ConfigDescription("Overall speed multiplier (0..1).", new AcceptableValueRange<float>(0f, 1f)));
-            WalkSpeed = cfg.Bind("02 Movement", "WalkSpeed", 4f,
-                "Target velocity (m/s) the bot drives at when walking. Tune to match your game feel.");
-            SprintSpeed = cfg.Bind("02 Movement", "SprintSpeed", 7f,
-                "Target velocity (m/s) the bot drives at when sprinting.");
+            WalkSpeed = cfg.Bind("02 Movement", "WalkSpeed", 3f,
+                "Target velocity (m/s) when walking. Lower = gentler, fewer collisions.");
+            SprintSpeed = cfg.Bind("02 Movement", "SprintSpeed", 5f,
+                "Target velocity (m/s) when sprinting (only when nothing's in the way / fleeing).");
+            CarrySpeed = cfg.Bind("02 Movement", "CarrySpeed", 1.6f,
+                "Target velocity (m/s) while carrying a valuable. Keep this LOW so items don't smash into walls/floor.");
+            Acceleration = cfg.Bind("02 Movement", "Acceleration", 14f,
+                "How quickly velocity ramps toward the target (m/s^2). Lower = smoother, less bashing.");
+            SlowRadius = cfg.Bind("02 Movement", "SlowRadius", 3f,
+                "Start easing off speed once within this distance of the goal.");
+            MinApproachSpeed = cfg.Bind("02 Movement", "MinApproachSpeed", 1f,
+                "Slowest crawl speed when right next to a goal.");
+            AutoStep = cfg.Bind("02 Movement", "AutoStep", true,
+                "Hop upward when blocked at foot height (climbs stairs / small props like desks).");
+            StepUpSpeed = cfg.Bind("02 Movement", "StepUpSpeed", 3.5f,
+                "Upward speed of the auto-step hop.");
             AllowSprint = cfg.Bind("02 Movement", "AllowSprint", true,
-                "Let the bot sprint when it judges the path safe.");
+                "Let the bot sprint when it judges the path safe and clear.");
             ArriveRadius = cfg.Bind("02 Movement", "ArriveRadius", 1.4f,
                 "Distance (m) at which a target counts as reached.");
             StuckSeconds = cfg.Bind("02 Movement", "StuckSeconds", 1.5f,
@@ -133,6 +153,10 @@ namespace REPOBot.Config
                 "How long to pull a door open before releasing it.");
             OpenCooldownSeconds = cfg.Bind("04 Objectives", "OpenCooldownSeconds", 15f,
                 "Don't try to open the same door again for this long (avoids fighting a stuck door).");
+            GrabHoldRefresh = cfg.Bind("04 Objectives", "GrabHoldRefresh", 0.4f,
+                "While carrying, re-assert the grab this often (seconds) so the item isn't dropped.");
+            PullDistance = cfg.Bind("04 Objectives", "PullDistance", 1.1f,
+                "Keep a carried item pulled in to roughly this distance so it doesn't flail into walls.");
             JumpWhenStuck = cfg.Bind("02 Movement", "JumpWhenStuck", true,
                 "Try to jump when the bot stops making progress (helps over small props/ledges).");
 
