@@ -97,8 +97,8 @@ namespace REPOBot.Config
             KeyDumpApi = cfg.Bind("01 Hotkeys", "DumpApi", KeyCode.F7,
                 "Dump the game's real API (PhysGrabber, cart, extraction, camera rig) to the log for diagnostics.");
 
-            MovementMode = cfg.Bind("02 Movement", "MovementMode", MovementPatch.MoveMode.Velocity,
-                "Velocity = override the rigidbody with wall-sliding (reliable default). NativeInput = feed the game's own movement for fully native wall-sliding/stairs (experimental - try it and report; if the bot doesn't move, it falls back to Velocity).");
+            MovementMode = cfg.Bind("02 Movement", "MovementMode", MovementPatch.MoveMode.NativeInput,
+                "NativeInput (default) = feed the game's own walking; it CANNOT bounce-hop and gets native stairs/sliding. If the bot doesn't move at all, set this to Velocity. Velocity = override the rigidbody (also hop-suppressed now).");
             NativeInputSpace = cfg.Bind("02 Movement", "NativeInputSpace", InputSpace.World,
                 "Only for NativeInput. If the bot moves in the WRONG direction (e.g. circles/sideways), switch this between World and CameraRelative.");
             MoveIntensity = cfg.Bind("02 Movement", "MoveIntensity", 1f,

@@ -29,7 +29,7 @@ namespace REPOBot.Game
         public enum MoveMode { Velocity, NativeInput }
 
         public static volatile bool Active;
-        public static MoveMode Mode = MoveMode.Velocity;
+        public static MoveMode Mode = MoveMode.NativeInput;
 
         /// <summary>Velocity mode: world-space target velocity (XZ; Y preserved).</summary>
         public static Vector3 DesiredVelocity;
@@ -72,21 +72,27 @@ namespace REPOBot.Game
 
             try
             {
-                // Velocity mode hooks a physics tick.
                 MethodInfo fixedUpdate = DeclaredMethod(pcType, "FixedUpdate") ?? DeclaredMethod(pcType, "Update");
+                MethodInfo update = DeclaredMethod(pcType, "Update");
+
+                // Velocity mode: override rigidbody velocity AFTER the controller ran.
                 if (fixedUpdate != null)
                     harmony.Patch(fixedUpdate, postfix: new HarmonyMethod(typeof(MovementPatch)
                         .GetMethod(nameof(AfterFixed), BindingFlags.Static | BindingFlags.NonPublic)));
 
-                // Native-input mode writes InputDirection right after the controller
-                // reads real input each frame (Update), so FixedUpdate moves us.
-                MethodInfo update = DeclaredMethod(pcType, "Update");
-                if (update != null && _nativeReady)
+                // Native-input mode: set InputDirection both right BEFORE the physics
+                // movement runs (FixedUpdate prefix) and after input is read each frame
+                // (Update postfix), so the controller's own movement uses our value
+                // whichever way it reads input.
+                if (_nativeReady && fixedUpdate != null)
+                    harmony.Patch(fixedUpdate, prefix: new HarmonyMethod(typeof(MovementPatch)
+                        .GetMethod(nameof(BeforeFixed), BindingFlags.Static | BindingFlags.NonPublic)));
+                if (_nativeReady && update != null)
                     harmony.Patch(update, postfix: new HarmonyMethod(typeof(MovementPatch)
                         .GetMethod(nameof(AfterUpdate), BindingFlags.Static | BindingFlags.NonPublic)));
 
                 _installed = fixedUpdate != null;
-                log.LogInfo($"MovementPatch: installed (native-input {( _nativeReady ? "available" : "UNAVAILABLE - InputDirection not found")}).");
+                log.LogInfo($"MovementPatch: installed. Mode={Mode}. native-input {( _nativeReady ? "available" : "UNAVAILABLE - InputDirection not found")}.");
             }
             catch (Exception ex)
             {
@@ -98,15 +104,23 @@ namespace REPOBot.Game
             t.GetMethod(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
 
         // --- Native input mode: set the controller's input direction ---
-        private static void AfterUpdate(MonoBehaviour __instance)
+        private static void WriteInput(MonoBehaviour pc)
         {
-            if (!Active || Mode != MoveMode.NativeInput || _inputDir == null) return;
+            if (_inputDir == null) return;
             try
             {
-                _inputDir.SetValue(__instance, DesiredInput);
-                _inputRaw?.SetValue(__instance, DesiredInput);
+                _inputDir.SetValue(pc, DesiredInput);
+                _inputRaw?.SetValue(pc, DesiredInput);
             }
             catch { /* ignore */ }
+        }
+        private static void AfterUpdate(MonoBehaviour __instance)
+        {
+            if (Active && Mode == MoveMode.NativeInput) WriteInput(__instance);
+        }
+        private static void BeforeFixed(MonoBehaviour __instance)
+        {
+            if (Active && Mode == MoveMode.NativeInput) WriteInput(__instance);
         }
 
         // --- Velocity mode: override the Rigidbody velocity ---
@@ -142,12 +156,19 @@ namespace REPOBot.Game
             else _blockedTimer = 0f;
             if (_stepCooldown > 0f) _stepCooldown -= dt;
 
+            bool hopped = false;
             if (AutoStep && _blockedTimer >= 0.35f && _stepCooldown <= 0f && grounded)
             {
                 y = StepUpSpeed;
                 _blockedTimer = 0f;
                 _stepCooldown = 0.7f;
+                hopped = true;
             }
+
+            // Unless we deliberately auto-stepped, NEVER write an upward velocity.
+            // This kills the bounce-hopping: ramming into floor seams/steps can give
+            // the player upward velocity, which we used to preserve and re-launch.
+            if (!hopped) y = Mathf.Min(y, 0f);
 
             _rb.velocity = new Vector3(newH.x, y, newH.z);
         }
